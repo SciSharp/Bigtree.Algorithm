@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Configurations>Debug;Release;RASA;DIALOGFLOW;ARTICULATE</Configurations>
+    <Platforms>AnyCPU;x64</Platforms>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageIconUrl></PackageIconUrl>
+    <PackageProjectUrl>https://github.com/Oceania2018/Bigtree.MachineLearning</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Oceania2018/Bigtree.MachineLearning</RepositoryUrl>
+    <Version>0.1.0</Version>
+    <PackageTags>MachineLearning,Algorithm,CRF,HMM,SVM,Bayes,DecisionTree</PackageTags>
+    <Authors>Haiping Chen, Peng Bo</Authors>
+    <Copyright>Apache 2.0</Copyright>
+    <Description>Machine Learning library in .NET Core.</Description>
+    <PackageLicenseUrl>https://github.com/Oceania2018/Bigtree.MachineLearning/blob/master/LICENSE</PackageLicenseUrl>
+    <Company>Haiping Chen</Company>
+    <PackageReleaseNotes>Milestone 0.1.0.</PackageReleaseNotes>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RASA|AnyCPU'">
+    <OutputPath>bin\RASA</OutputPath>
+    <DefineConstants>TRACE;DEBUG;RASA</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DIALOGFLOW|AnyCPU'">
+    <DefineConstants>DEBUG;TRACE;DIALOGFLOW;NETSTANDARD;NETSTANDARD2_0</DefineConstants>
+    <Optimize>false</Optimize>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ARTICULATE|AnyCPU'">
+    <DefineConstants>TRACE;ARTICULATE</DefineConstants>
+  </PropertyGroup>
+
+</Project>

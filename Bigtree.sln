@@ -1,0 +1,41 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.28010.2003
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Bigtree.Algorithm", "Bigtree.Algorithm\Bigtree.Algorithm.csproj", "{0CB4F114-DA12-42ED-82A7-DF5472D96E60}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Bigtree.Algorithm.UnitTest", "Bigtree.Algorithm.UnitTest\Bigtree.Algorithm.UnitTest.csproj", "{702869E6-7ABD-4755-A815-267935706C22}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0CB4F114-DA12-42ED-82A7-DF5472D96E60}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0CB4F114-DA12-42ED-82A7-DF5472D96E60}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0CB4F114-DA12-42ED-82A7-DF5472D96E60}.Debug|x64.ActiveCfg = Debug|x64
+		{0CB4F114-DA12-42ED-82A7-DF5472D96E60}.Debug|x64.Build.0 = Debug|x64
+		{0CB4F114-DA12-42ED-82A7-DF5472D96E60}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0CB4F114-DA12-42ED-82A7-DF5472D96E60}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0CB4F114-DA12-42ED-82A7-DF5472D96E60}.Release|x64.ActiveCfg = Release|x64
+		{0CB4F114-DA12-42ED-82A7-DF5472D96E60}.Release|x64.Build.0 = Release|x64
+		{702869E6-7ABD-4755-A815-267935706C22}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{702869E6-7ABD-4755-A815-267935706C22}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{702869E6-7ABD-4755-A815-267935706C22}.Debug|x64.ActiveCfg = Debug|x64
+		{702869E6-7ABD-4755-A815-267935706C22}.Debug|x64.Build.0 = Debug|x64
+		{702869E6-7ABD-4755-A815-267935706C22}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{702869E6-7ABD-4755-A815-267935706C22}.Release|Any CPU.Build.0 = Release|Any CPU
+		{702869E6-7ABD-4755-A815-267935706C22}.Release|x64.ActiveCfg = Release|x64
+		{702869E6-7ABD-4755-A815-267935706C22}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {DC98ED2E-C861-4175-A102-E38A7AB37381}
+	EndGlobalSection
+EndGlobal

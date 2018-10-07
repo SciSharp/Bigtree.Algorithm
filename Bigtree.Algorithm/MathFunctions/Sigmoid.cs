@@ -20,26 +20,19 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Bigtree.Algorithm.Maths
+namespace Bigtree.Algorithm.MathFunctions
 {
-    /// <summary>
-    /// A sigmoid function is a mathematical function having a characteristic "S"-shaped curve or sigmoid curve. 
-    /// </summary>
-    public class Sigmoid
+    public partial class Function 
     {
-        private double x;
-
-        public double y
+        /// <summary>
+        /// A sigmoid function is a mathematical function having a characteristic "S"-shaped curve or sigmoid curve. 
+        /// </summary>
+        /// <param name="x"></param>
+        /// <param name="coeficient"></param>
+        /// <returns></returns>
+        public static double Sigmoid(double x, double coeficient = 1)
         {
-            get
-            {
-                return 1 / (1 + Math.Pow(Math.E, -x));
-            }
-        }
-
-        public Sigmoid(double x)
-        {
-            this.x = x;
+            return 1 / (1 + Math.Exp(-x * coeficient));
         }
     }
 }

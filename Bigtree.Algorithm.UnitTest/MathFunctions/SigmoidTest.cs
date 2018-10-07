@@ -1,10 +1,10 @@
-﻿using Bigtree.Algorithm.Maths;
+﻿using Bigtree.Algorithm.MathFunctions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Bigtree.Algorithm.UnitTest.Maths
+namespace Bigtree.Algorithm.UnitTest.MathFunctions
 {
     [TestClass]
     public class SigmoidTest
@@ -13,8 +13,8 @@ namespace Bigtree.Algorithm.UnitTest.Maths
         public void CalTest()
         {
             var x = new Random().NextDouble();
-            var sigmoid = new Sigmoid(x);
-            Assert.IsTrue(0 < sigmoid.y && sigmoid.y < 1);
+            var y = Function.Sigmoid(x);
+            Assert.IsTrue(0 < y && y < 1);
         }
 
         public void CudaTest()
@@ -28,7 +28,7 @@ namespace Bigtree.Algorithm.UnitTest.Maths
                 x[i] = rand.NextDouble();
             }
 #if CUDA
-            Campy.Parallel.For(n, i => y[i] = 1 / (1 + Math.Pow(Math.E, -x[i])));
+            Campy.Parallel.For(n, i => y[i] = Function.Sigmoid(-x[i]));
 #endif
             for (int i = 0; i < n; ++i)
             {

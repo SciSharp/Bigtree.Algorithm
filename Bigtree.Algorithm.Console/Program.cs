@@ -1,23 +1,15 @@
 ﻿using Bigtree.Algorithm.NeuralNetwork;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
-using System.Collections.Generic;
-using System.Text;
 
-namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
+namespace Bigtree.Algorithm.Console
 {
-    [TestClass]
-    public class NetworkModelTest
+    class Program
     {
-        /// <summary>
-        /// AND gate test
-        /// </summary>
-        [TestMethod]
-        public void TestAndGate()
+        static void Main(string[] args)
         {
             NetworkModel model = new NetworkModel();
             model.Layers.Add(new NeuralLayer(2, 0.1, "INPUT"));
-            model.Layers.Add(new NeuralLayer(2, 0.1, "HIDDEN"));
+            //model.Layers.Add(new NeuralLayer(2, 0.1, "HIDDEN"));
             model.Layers.Add(new NeuralLayer(1, 0.1, "OUTPUT"));
 
             model.Build();

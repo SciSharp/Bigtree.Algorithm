@@ -28,11 +28,11 @@ namespace Bigtree.Algorithm.MathFunctions
         /// A sigmoid function is a mathematical function having a characteristic "S"-shaped curve or sigmoid curve. 
         /// </summary>
         /// <param name="x"></param>
-        /// <param name="coeficient"></param>
+        /// <param name="coefficient"></param>
         /// <returns></returns>
-        public static double Sigmoid(double x, double coeficient = 1)
+        public static double Sigmoid(double x, double coefficient = 1)
         {
-            return 1 / (1 + Math.Exp(-x * coeficient));
+            return 1 / (1 + Math.Exp(-x * coefficient));
         }
     }
 }

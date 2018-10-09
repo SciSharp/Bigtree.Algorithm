@@ -34,11 +34,11 @@ namespace Bigtree.Algorithm.NeuralNetwork
             }
         }
 
-        public void Forward()
+        public void Forward(NeuralLayer preLayer)
         {
             foreach (var neuron in Neurons)
             {
-                neuron.Fire();
+                neuron.Fire(preLayer);
             }
         }
     }

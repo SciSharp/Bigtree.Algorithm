@@ -28,7 +28,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
             {
                 for (int i = 0; i < dendriteCount; i++)
                 {
-                    element.Dendrites.Add(new Dendrite());
+                    element.InputDendrites.Add(new Dendrite());
                 }
             }
         }
@@ -97,16 +97,21 @@ namespace Bigtree.Algorithm.NeuralNetwork
         private void ComputeOutput()
         {
             bool first = true;
+            NeuralLayer preLayer = null;
+
             foreach (var layer in Layers)
             {
                 //Skip first layer as it is input
                 if (first)
                 {
                     first = false;
+                    preLayer = layer;
                     continue;
                 }
 
-                layer.Forward();
+                layer.Forward(preLayer);
+
+                preLayer = layer;
             }
         }
 
@@ -135,16 +140,16 @@ namespace Bigtree.Algorithm.NeuralNetwork
         {
             foreach (var from in connectingFrom.Neurons)
             {
-                from.Dendrites = new List<Dendrite>();
-                from.Dendrites.Add(new Dendrite());
+                from.InputDendrites = new List<Dendrite>();
+                from.InputDendrites.Add(new Dendrite());
             }
 
             foreach (var to in connectingTo.Neurons)
             {
-                to.Dendrites = new List<Dendrite>();
+                to.InputDendrites = new List<Dendrite>();
                 foreach (var from in connectingFrom.Neurons)
                 {
-                    to.Dendrites.Add(new Dendrite() { InputPulse = from.OutputPulse, SynapticWeight = connectingTo.Weight });
+                    to.InputDendrites.Add(new Dendrite() { InputPulse = from.OutputPulse, SynapticWeight = connectingTo.Weight });
                 }
             }
         }

@@ -21,4 +21,8 @@
     <ProjectReference Include="..\Bigtree.Algorithm\Bigtree.Algorithm.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Matrix\" />
+  </ItemGroup>
+
 </Project>

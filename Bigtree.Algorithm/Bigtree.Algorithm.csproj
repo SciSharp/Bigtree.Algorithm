@@ -33,4 +33,12 @@
     <DefineConstants>TRACE;ARTICULATE</DefineConstants>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\NumSharp\NumSharp\NumSharp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Matrix\" />
+  </ItemGroup>
+
 </Project>

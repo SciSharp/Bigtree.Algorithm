@@ -10,7 +10,7 @@ namespace Bigtree.Algorithm
 {
     public class Utils
     {
-        public static DataSet<T1, T2> ReadCsv<T1, T2>(string path) 
+        public static (NdArray<NdArray<T1>>, NdArray<T2>) ReadCsv<T1, T2>(string path) 
         {
             var X = new NdArray<NdArray<T1>>
             {
@@ -48,7 +48,7 @@ namespace Bigtree.Algorithm
                 }
             }
 
-            return new DataSet<T1, T2> { X = X, Y = y };
+            return (X, y);
         }
     }
 }

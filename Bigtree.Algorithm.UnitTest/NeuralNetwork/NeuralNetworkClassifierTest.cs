@@ -21,8 +21,7 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
                 Read data (X,y) and normalize X
                ================================= */
             Console.WriteLine($"Reading '{filename}'...");
-            var data = Utils.ReadCsv<double, int>(filename); // read as matrix of floats and int
-            var X = data.X; var y = data.Y;
+            (var X, var y) = Utils.ReadCsv<double, int>(filename); // read as matrix of floats and int
             // normalize
             X.Normalize(); 
             // extract shape of X

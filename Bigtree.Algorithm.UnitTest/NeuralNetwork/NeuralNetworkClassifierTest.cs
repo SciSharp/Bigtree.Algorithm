@@ -25,7 +25,7 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
             // normalize
             X.Normalize(); 
             // extract shape of X
-            var N = X.Shape.Rows; var d = X.Shape.Dimensions; 
+            (var N, var d) = X.Shape; 
 
             var nClasses = y.Unique().Length;
 

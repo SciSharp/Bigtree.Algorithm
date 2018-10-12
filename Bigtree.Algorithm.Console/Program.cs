@@ -26,7 +26,7 @@ namespace Bigtree.Algorithm.Console
             Y.Add(0);
             Y.Add(1);
 
-            model.Train(X, Y, iterations: 10, learningRate: 0.1);
+            // model.Train(X, Y, iterations: 10, learningRate: 0.1);
         }
     }
 }

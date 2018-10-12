@@ -6,19 +6,14 @@ namespace Bigtree.Algorithm.NeuralNetwork
 {
     public class Dendrite
     {
-        public Dendrite()
-        {
-            InputPulse = new Pulse();
-        }
-
         /// <summary>
         /// Input pulse
         /// </summary>
-        public Pulse InputPulse { get; set; }
+        public double Pulse { get; set; }
 
         /// <summary>
         /// Synaptic weight
         /// </summary>
-        public double SynapticWeight { get; set; }
+        public double Weight { get; set; }
     }
 }

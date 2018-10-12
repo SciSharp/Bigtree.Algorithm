@@ -5,6 +5,7 @@ using System.IO;
 using System.Text;
 using NumSharp.Extensions;
 using NumSharp;
+using Bigtree.Algorithm.NeuralNetwork;
 
 namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
 {
@@ -39,6 +40,34 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
               =================================== */
 
             var idx_all = np.ARange(N, 0);
+            var idx_folds = Utils.CrossValFolds(N, 4);
+
+            /* ===================================
+              Train and evaluate the model on each fold
+              =================================== */
+            // List<acc_train, acc_test = list(), list()  # training/test accuracy score
+            Console.WriteLine("Training and cross-validating...");
+            for(int i = 0; i < 4; i++)
+            {
+                // Collect training and test data from folds
+                var idx_test = idx_folds[i];
+                var idx_train = idx_all.Delete(idx_test);
+                var X_train = X[idx_train];
+                var y_train = y[idx_train];
+                var X_test = X[idx_test];
+                var y_test = y[idx_test];
+
+                // Build neural network classifier model and train
+                NetworkModel model = new NetworkModel();
+
+                model.Layers.Add(new NeuralLayer(d, 0.1, "INPUT"));
+                model.Layers.Add(new NeuralLayer(5, 0.1, "HIDDEN"));
+                model.Layers.Add(new NeuralLayer(nClasses, 0.1, "OUTPUT"));
+
+                model.Build();
+
+                model.Train(X_train, y_train, iterations: 800, learningRate: 0.6);
+            }
         }
     }
 }

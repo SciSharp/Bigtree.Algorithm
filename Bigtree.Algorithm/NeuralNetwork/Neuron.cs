@@ -14,25 +14,24 @@ namespace Bigtree.Algorithm.NeuralNetwork
         /// <summary>
         /// Output pulse
         /// </summary>
-        public Pulse OutputPulse { get; set; }
+        public double OutputPulse { get; set; }
 
         private double threshold;
 
         public Neuron()
         {
             InputDendrites = new List<Dendrite>();
-            OutputPulse = new Pulse();
 
             threshold = 1;
         }
 
         public void Fire(NeuralLayer preLayer)
         {
-            OutputPulse.Value = Sum(preLayer);
+            OutputPulse = Sum(preLayer);
 
-            OutputPulse.Value = ActivationFunction.Step(OutputPulse.Value);
+            OutputPulse = ActivationFunction.Sigmoid(OutputPulse);
 
-            Console.WriteLine($"Activation: {OutputPulse.Value}");
+            Console.WriteLine($"Activation: {OutputPulse}");
             Console.WriteLine();
         }
 
@@ -40,7 +39,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
         {
             foreach (var terminal in InputDendrites)
             {
-                terminal.SynapticWeight = new_weights;
+                terminal.Weight = new_weights;
             }
         }
 
@@ -49,15 +48,9 @@ namespace Bigtree.Algorithm.NeuralNetwork
             double computeValue = 0.0f;
             foreach(var neuron in preLayer.Neurons)
             {
-                computeValue += neuron.OutputPulse.Value * neuron.InputDendrites[0].SynapticWeight;
-                Console.WriteLine($"{neuron.OutputPulse.Value} * {neuron.InputDendrites[0].SynapticWeight} = {neuron.OutputPulse.Value * neuron.InputDendrites[0].SynapticWeight}");
+                computeValue += neuron.OutputPulse * neuron.InputDendrites[0].Weight;
+                Console.WriteLine($"{neuron.OutputPulse} * {neuron.InputDendrites[0].Weight} = {neuron.OutputPulse * neuron.InputDendrites[0].Weight}");
             }
-
-            /*foreach (var d in InputDendrites)
-            {
-                computeValue += d.InputPulse.Value * d.SynapticWeight;
-                Console.WriteLine($"{d.InputPulse.Value} * {d.SynapticWeight} = {d.InputPulse.Value * d.SynapticWeight}");
-            }*/
 
             Console.WriteLine($"Sum = {computeValue}");
 

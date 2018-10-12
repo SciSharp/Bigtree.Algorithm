@@ -1,4 +1,5 @@
 ﻿using NumSharp;
+using NumSharp.Extensions;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -49,6 +50,24 @@ namespace Bigtree.Algorithm
             }
 
             return (X, y);
+        }
+
+        public static List<List<int>> CrossValFolds(int N, int n_folds)
+        {
+            var folds = new List<List<int>>();
+
+            var np = new NdArray<int>();
+            var rands = np.Random().Permutation(N);
+
+            var N_fold = N / n_folds;
+
+            for(int i = 0; i < n_folds; i++)
+            {
+                var list = rands.Data.Skip(N_fold * i).Take(N_fold).ToList();
+                folds.Add(list);
+            }
+
+            return folds;
         }
     }
 }

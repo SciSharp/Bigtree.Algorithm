@@ -1,5 +1,9 @@
 ﻿using Bigtree.Algorithm.NeuralNetwork;
+using NumSharp;
+using NumSharp.Extensions;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Bigtree.Algorithm.Console
 {
@@ -7,10 +11,9 @@ namespace Bigtree.Algorithm.Console
     {
         static void Main(string[] args)
         {
-            NetworkModel model = new NetworkModel();
-            model.Layers.Add(new NeuralLayer(2, 0.1, "INPUT"));
-            //model.Layers.Add(new NeuralLayer(2, 0.1, "HIDDEN"));
-            model.Layers.Add(new NeuralLayer(1, 0.1, "OUTPUT"));
+            /*NetworkModel model = new NetworkModel();
+            model.Layers.Add(new NeuralLayer(2, "INPUT"));
+            model.Layers.Add(new NeuralLayer(1, "OUTPUT"));
 
             model.Build();
 
@@ -26,7 +29,7 @@ namespace Bigtree.Algorithm.Console
             Y.Add(0);
             Y.Add(1);
 
-            // model.Train(X, Y, iterations: 10, learningRate: 0.1);
+            model.Train(X, Y, iterations: 10, learningRate: 0.1);*/
         }
     }
 }

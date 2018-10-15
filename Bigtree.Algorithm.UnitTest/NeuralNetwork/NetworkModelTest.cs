@@ -16,9 +16,9 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
         public void TestAndGate()
         {
             NetworkModel model = new NetworkModel();
-            model.Layers.Add(new NeuralLayer(2, 0.1, "INPUT"));
-            model.Layers.Add(new NeuralLayer(2, 0.1, "HIDDEN"));
-            model.Layers.Add(new NeuralLayer(1, 0.1, "OUTPUT"));
+            model.Layers.Add(new NeuralLayer(2, "INPUT"));
+            model.Layers.Add(new NeuralLayer(2, "HIDDEN"));
+            model.Layers.Add(new NeuralLayer(1, "OUTPUT"));
 
             model.Build();
 

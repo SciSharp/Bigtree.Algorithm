@@ -29,8 +29,8 @@ namespace Bigtree.Algorithm.NeuralNetwork
 
             Output = ActivationFunction.Sigmoid(Output);
 
-            Console.WriteLine($"Activation: {Output}");
-            Console.WriteLine();
+            // Console.WriteLine($"Activation: {Output}");
+            // Console.WriteLine();
         }
 
         public void UpdateWeights(double new_weights)
@@ -51,10 +51,10 @@ namespace Bigtree.Algorithm.NeuralNetwork
 
                 computeValue += neuron.Output * dendrite.Weight;
 
-                Console.WriteLine($"{neuron.Output} * {neuron.InputDendrites[0].Weight} = {neuron.Output * neuron.InputDendrites[0].Weight}");
+                // Console.WriteLine($"{neuron.Output} * {neuron.InputDendrites[0].Weight} = {neuron.Output * neuron.InputDendrites[0].Weight}");
             }
 
-            Console.WriteLine($"Sum = {computeValue}");
+            // Console.WriteLine($"Sum = {computeValue}");
 
             return computeValue;
         }

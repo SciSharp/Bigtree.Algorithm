@@ -6,6 +6,7 @@ using System.Text;
 using NumSharp.Extensions;
 using NumSharp;
 using Bigtree.Algorithm.NeuralNetwork;
+using System.Linq;
 
 namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
 {
@@ -17,12 +18,16 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
         {
             var filename = @"data/seeds_dataset.csv";
             var np = new NdArray<int>();
+            var n_hidden_nodes = 5; // nodes in hidden layers
+            var l_rate = 0.6; // learning rate
+            var n_epochs = 1000; // number of training epochs
+            var n_folds = 4; // number of folds for cross-validation
 
             /* =================================
                 Read data (X,y) and normalize X
                ================================= */
             Console.WriteLine($"Reading '{filename}'...");
-            (var X, var y) = Utils.ReadCsv<double, int>(filename); // read as matrix of floats and int
+            (var X, var y) = Utils.ReadCsv(filename); // read as matrix of floats and int
             // normalize
             X.Normalize(); 
             // extract shape of X
@@ -30,9 +35,9 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
 
             var nClasses = y.Unique().Length;
 
-            Console.WriteLine($" X.shape = {X.Shape}");
-            Console.WriteLine($" y.shape = {y.Shape}");
-            Console.WriteLine($" n_classes = {nClasses}");
+            Console.WriteLine($"X.shape = {X.Shape}, y.shape = {y.Shape}");
+            Console.WriteLine($"size = {X.Data.Count}, dimesion = {X.NDim}, number of classes = {nClasses}");
+            Console.WriteLine($"hidden nodes = {n_hidden_nodes}, learning rate = {l_rate}, epochs = {n_epochs}");
 
             /* ===================================
                Create cross-validation folds
@@ -47,7 +52,11 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
               =================================== */
             // List<acc_train, acc_test = list(), list()  # training/test accuracy score
             Console.WriteLine("Training and cross-validating...");
-            for(int i = 0; i < 4; i++)
+
+            List<double> acc_train = new List<double>();
+            List<double> acc_test = new List<double>();
+            
+            for (int i = 0; i < n_folds; i++)
             {
                 // Collect training and test data from folds
                 var idx_test = idx_folds[i];
@@ -60,21 +69,25 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
                 // Build neural network classifier model and train
                 NetworkModel model = new NetworkModel();
 
-                model.Layers.Add(new NeuralLayer(d, 0.1, "INPUT"));
-                model.Layers.Add(new NeuralLayer(5, 0.1, "HIDDEN"));
-                model.Layers.Add(new NeuralLayer(nClasses, 0.1, "OUTPUT"));
+                model.Layers.Add(new NeuralLayer(d, "INPUT"));
+                model.Layers.Add(new NeuralLayer(n_hidden_nodes, "HIDDEN"));
+                model.Layers.Add(new NeuralLayer(nClasses, "OUTPUT"));
 
                 model.Build();
 
-                model.Train(X_train, y_train, iterations: 800, learningRate: 0.6);
+                model.Train(X_train, y_train, iterations: n_epochs, learningRate: l_rate);
 
                 // Make predictions for training and test data
                 var y_train_predict = model.Predict(X_train);
                 var y_test_predict = model.Predict(X_test);
 
-                var acc_train = 100 * y_train.Sum(y_train_predict) / y_train.Length;
-                var acc_test = 100 * y_test.Sum(y_test_predict) / y_test.Length;
+                acc_train.Add(100 * y_train.Sum(y_train_predict) / y_train.Length);
+                acc_test.Add(100 * y_test.Sum(y_test_predict) / y_test.Length);
+
+                Console.WriteLine($"Fold {i + 1}/{n_folds}: train acc = {acc_train.Last()}%, test acc = {acc_test.Last()}% (n_train = {X_train.Length}, n_test = {X_test.Length})");
             }
+
+            Console.WriteLine($"Avg train acc = {acc_train.Average()}%, avg test acc = {acc_test.Average()}%");
         }
     }
 }

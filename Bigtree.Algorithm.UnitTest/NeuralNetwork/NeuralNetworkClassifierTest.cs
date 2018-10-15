@@ -67,6 +67,13 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
                 model.Build();
 
                 model.Train(X_train, y_train, iterations: 800, learningRate: 0.6);
+
+                // Make predictions for training and test data
+                var y_train_predict = model.Predict(X_train);
+                var y_test_predict = model.Predict(X_test);
+
+                var acc_train = 100 * y_train.Sum(y_train_predict) / y_train.Length;
+                var acc_test = 100 * y_test.Sum(y_test_predict) / y_test.Length;
             }
         }
     }

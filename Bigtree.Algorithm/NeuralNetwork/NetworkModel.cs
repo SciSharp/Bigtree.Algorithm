@@ -1,4 +1,6 @@
-﻿using NumSharp;
+﻿using Bigtree.Algorithm.MathFunctions;
+using NumSharp;
+using NumSharp.Extensions;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -40,7 +42,15 @@ namespace Bigtree.Algorithm.NeuralNetwork
             int i = 0;
             foreach (var layer in Layers)
             {
-                if (i >= Layers.Count - 1)
+                if (i == 0)
+                {
+                    layer.Neurons.ForEach(x => x.InputDendrites.Add(new Dendrite
+                    {
+                        Weight = 1,
+                        Pulse = -1
+                    }));
+                }
+                else if (i >= Layers.Count - 1)
                 {
                     break;
                 }
@@ -58,41 +68,38 @@ namespace Bigtree.Algorithm.NeuralNetwork
             //Loop till the number of iterations
             while (iterations >= epoch)
             {
-                List<double> outputs = new List<double>();
-
                 //Loop through the record
                 for (int i = 0; i < X.Data.Count; i++)
                 {
                     FireForwardPropagation(X.Data[i]);
 
                     // Create target output
-                    // y_target = np.zeros(self.n_output, dtype = np.int)
-                    // y_target[y] = 1
+                    var y_target = new NdArray<int>().Zeros(Layers.Last().Neurons.Count);
+                    y_target[Y[i] - 1] = 1;
                     // Backward-pass error into network (updates node delta)
-                    // self._backward_pass(y_target)
+                    BackPropagation(y_target);
                     // Update network weights (using updated node delta and node output)
-                    // self._update_weights(x, l_rate = l_rate)
-
-                    outputs.Add(Layers.Last().Neurons.First().OutputPulse);
+                    UpdateWeights(X.Data[i], learningRate);
                 }
 
-                //Check the accuracy score against Y with the actual output
-                double accuracySum = 0;
-                int y_counter = 0;
-                outputs.ForEach((x) => {
-                    if (x == Y.Data[y_counter])
-                    {
-                        accuracySum++;
-                    }
-
-                    y_counter++;
-                });
-
-                //Optimize the synaptic weights
-                OptimizeWeights(accuracySum / y_counter);
-                Console.WriteLine("Epoch: {0}, Accuracy: {1} %", epoch, (accuracySum / y_counter) * 100);
                 epoch++;
             }
+        }
+
+        public NdArray<int> Predict(NdArray<NdArray<double>> X)
+        {
+            var y_predict = new NdArray<int>().Zeros(X.Length);
+            var np = new NdArray<double>();
+
+            for (int i = 0; i < X.Length; i++)
+            {
+                var x = X[i];
+                FireForwardPropagation(x);
+                var output = Layers[Layers.Count - 1].Neurons.Select(neuron => neuron.Output).ToList();
+                y_predict[i] = np.Array(output).ArgMax() + 1;
+            }
+
+            return y_predict;
         }
 
         /// <summary>
@@ -106,11 +113,51 @@ namespace Bigtree.Algorithm.NeuralNetwork
             //Set the input data into the first layer
             for (int j = 0; j < data.Length; j++)
             {
-                inputLayer.Neurons[j].OutputPulse = data[j];
+                inputLayer.Neurons[j].Output = data[j];
             }
 
             //Fire all the neurons and collect the output
             ComputeOutput();
+        }
+
+        private void BackPropagation(NdArray<int> target)
+        {
+            for (int layerIndex = Layers.Count - 1; layerIndex > 0; layerIndex--)
+            {
+                var layer = Layers[layerIndex];
+                List<double> errors = new List<double>();
+
+                for (int neuronIndex = 0; neuronIndex < layer.Neurons.Count; neuronIndex++)
+                {
+                    // Last layer: errors = target output difference 
+                    if (layerIndex == Layers.Count - 1)
+                    {
+                        var neuron = layer.Neurons[neuronIndex];
+                        errors.Add(target[neuronIndex] - neuron.Output);
+                    }
+                    // Previous layers: error = weights sum of frontward node deltas
+                    else
+                    {
+                        double error = 0;
+                        for (int pre = layerIndex; pre > 0; pre--)
+                        {
+                            Layers[pre + 1].Neurons.ForEach(neuron =>
+                            {
+                                error += neuron.InputDendrites[neuronIndex].Weight * neuron.Delta;
+                            });
+                        }
+
+                        errors.Add(error);
+                    }
+                }
+
+                for (int neuronIndex = 0; neuronIndex < layer.Neurons.Count; neuronIndex++)
+                {
+                    var neuron = layer.Neurons[neuronIndex];
+                    // Update delta using our errors
+                    neuron.Delta = errors[neuronIndex] * Function.SigmoidDerivative(neuron.Output);
+                }
+            }
         }
 
         private void ComputeOutput()
@@ -131,6 +178,29 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 layer.Forward(preLayer);
 
                 preLayer = layer;
+            }
+        }
+
+        private void UpdateWeights(NdArray<double> x, double learningRate = 0.1)
+        {
+            for (int layerIndex = 1; layerIndex < Layers.Count; layerIndex++)
+            {
+                var inputs = x;
+
+                var layer = Layers[layerIndex];
+
+                if (layerIndex > 1)
+                {
+                    var layer2 = Layers[layerIndex - 1];
+                    inputs = new NdArray<double>() { NDim = 1 };
+                    inputs.Data = layer2.Neurons.Select(output => output.Output).ToList();
+                }
+
+                for(int n = 0; n < layer.Neurons.Count; n++)
+                {
+                    var neuron = layer.Neurons[n];
+                    neuron.InputDendrites[n].Weight = x.Data.Sum(input => learningRate * neuron.Delta * input);
+                }
             }
         }
 
@@ -157,23 +227,19 @@ namespace Bigtree.Algorithm.NeuralNetwork
 
         private void CreateNetwork(NeuralLayer connectingFrom, NeuralLayer connectingTo)
         {
+            // Initial a rand weight for input layer
             var rand = new Random();
-
-            foreach (var from in connectingFrom.Neurons)
-            {
-                from.InputDendrites = new List<Dendrite>();
-                from.InputDendrites.Add(new Dendrite()
-                {
-                    Weight = rand.NextDouble()
-                });
-            }
 
             foreach (var to in connectingTo.Neurons)
             {
                 to.InputDendrites = new List<Dendrite>();
                 foreach (var from in connectingFrom.Neurons)
                 {
-                    to.InputDendrites.Add(new Dendrite() { Pulse = from.OutputPulse, Weight = connectingTo.Weight });
+                    to.InputDendrites.Add(new Dendrite()
+                    {
+                        Pulse = from.Output,
+                        Weight = rand.NextDouble()
+                    });
                 }
             }
         }

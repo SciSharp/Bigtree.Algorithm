@@ -34,5 +34,10 @@ namespace Bigtree.Algorithm.MathFunctions
         {
             return 1 / (1 + Math.Exp(-x * coefficient));
         }
+
+        public static double SigmoidDerivative(double y)
+        {
+            return y * (1 - y);
+        }
     }
 }

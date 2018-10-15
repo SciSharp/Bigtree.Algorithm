@@ -34,11 +34,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\NumSharp\NumSharp\NumSharp.csproj" />
+    <Folder Include="Matrix\" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Matrix\" />
+    <ProjectReference Include="..\..\NumSharp\src\NumSharp\NumSharp.csproj" />
   </ItemGroup>
 
 </Project>

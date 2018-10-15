@@ -14,24 +14,22 @@ namespace Bigtree.Algorithm.NeuralNetwork
         /// <summary>
         /// Output pulse
         /// </summary>
-        public double OutputPulse { get; set; }
+        public double Output { get; set; }
 
-        private double threshold;
+        public double Delta { get; set; }
 
         public Neuron()
         {
             InputDendrites = new List<Dendrite>();
-
-            threshold = 1;
         }
 
         public void Fire(NeuralLayer preLayer)
         {
-            OutputPulse = Sum(preLayer);
+            Output = Sum(preLayer);
 
-            OutputPulse = ActivationFunction.Sigmoid(OutputPulse);
+            Output = ActivationFunction.Sigmoid(Output);
 
-            Console.WriteLine($"Activation: {OutputPulse}");
+            Console.WriteLine($"Activation: {Output}");
             Console.WriteLine();
         }
 
@@ -46,10 +44,14 @@ namespace Bigtree.Algorithm.NeuralNetwork
         private double Sum(NeuralLayer preLayer)
         {
             double computeValue = 0.0f;
-            foreach(var neuron in preLayer.Neurons)
+            for(int i = 0; i < preLayer.Neurons.Count; i++)
             {
-                computeValue += neuron.OutputPulse * neuron.InputDendrites[0].Weight;
-                Console.WriteLine($"{neuron.OutputPulse} * {neuron.InputDendrites[0].Weight} = {neuron.OutputPulse * neuron.InputDendrites[0].Weight}");
+                var neuron = preLayer.Neurons[i];
+                var dendrite = InputDendrites[i];
+
+                computeValue += neuron.Output * dendrite.Weight;
+
+                Console.WriteLine($"{neuron.Output} * {neuron.InputDendrites[0].Weight} = {neuron.Output * neuron.InputDendrites[0].Weight}");
             }
 
             Console.WriteLine($"Sum = {computeValue}");

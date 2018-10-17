@@ -17,7 +17,7 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
         public void SeedsClassificationTest()
         {
             var filename = @"data/seeds_dataset.csv";
-            var np = new NdArray<int>();
+            var np = new NDArray<int>();
             var n_hidden_nodes = 5; // nodes in hidden layers
             var l_rate = 0.6; // learning rate
             var n_epochs = 1000; // number of training epochs

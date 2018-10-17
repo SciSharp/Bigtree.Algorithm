@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 
@@ -11,20 +12,16 @@ namespace Bigtree.Algorithm
 {
     public class Utils
     {
-        public static (NdArray<NdArray<double>>, NdArray<int>) ReadCsv(string path) 
+        public static (NDArray<NDArray<double>>, NDArray<int>) ReadCsv(string path) 
         {
             List<int> labels = new List<int>();
 
-            var X = new NdArray<NdArray<double>>
+            var X = new NDArray<NDArray<double>>
             {
-                Data = new List<NdArray<double>>()
+                Data = new List<NDArray<double>>()
             };
 
-            var y = new NdArray<int>()
-            {
-                NDim = 1,
-                Data = new List<int>()
-            };
+            var y = new NDArray<int>();
 
             using (StreamReader reader = new StreamReader(path))
             {
@@ -34,15 +31,7 @@ namespace Bigtree.Algorithm
                 {
                     var tokens = line.Split(',');
 
-                    if (X.NDim == -1)
-                    {
-                        X.NDim = tokens.Length - 1;
-                    }
-
-                    var row = new NdArray<double>
-                    {
-                        NDim = 1
-                    };
+                    var row = new NDArray<double>();
 
                     row.Data = tokens.Take(X.NDim).Select(x => (double)TypeDescriptor.GetConverter(typeof(double)).ConvertFrom(x)).ToList();
 
@@ -64,7 +53,7 @@ namespace Bigtree.Algorithm
         {
             var folds = new List<List<int>>();
 
-            var np = new NdArray<int>();
+            var np = new NDArray<int>();
             var rands = np.Random().Permutation(N);
 
             var N_fold = N / n_folds;

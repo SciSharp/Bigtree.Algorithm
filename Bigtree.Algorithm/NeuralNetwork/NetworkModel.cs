@@ -62,7 +62,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
             }
         }
 
-        public void Train(NdArray<NdArray<double>> X, NdArray<int> Y, int iterations, double learningRate = 0.1)
+        public void Train(NDArray<NDArray<double>> X, NDArray<int> Y, int iterations, double learningRate = 0.1)
         {
             int epoch = 1;
             //Loop till the number of iterations
@@ -72,7 +72,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 for (int i = 0; i < X.Data.Count; i++)
                 {
                     // Create target output
-                    var y_target = new NdArray<int>().Zeros(Layers.Last().Neurons.Count);
+                    var y_target = new NDArray<int>().Zeros(Layers.Last().Neurons.Count);
                     y_target[Y[i]] = 1;
                     // Forward-pass training example into network (updates node output)
                     var x_input = X.Data[i];
@@ -87,10 +87,10 @@ namespace Bigtree.Algorithm.NeuralNetwork
             }
         }
 
-        public NdArray<int> Predict(NdArray<NdArray<double>> X)
+        public NDArray<int> Predict(NDArray<NDArray<double>> X)
         {
-            var y_predict = new NdArray<int>().Zeros(X.Length);
-            var np = new NdArray<double>();
+            var y_predict = new NDArray<int>().Zeros(X.Length);
+            var np = new NDArray<double>();
 
             for (int i = 0; i < X.Length; i++)
             {
@@ -103,7 +103,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
             return y_predict;
         }
 
-        private void BackPropagation(NdArray<int> target)
+        private void BackPropagation(NDArray<int> target)
         {
             for (int layerIndex = Layers.Count - 1; layerIndex > 0; layerIndex--)
             {
@@ -146,7 +146,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
         /// <summary>
         /// Perform forward-pass through network and update node outputs
         /// </summary>
-        private void ForwardPropagation(NdArray<double> data)
+        private void ForwardPropagation(NDArray<double> data)
         {
             //Set the input data into the first layer
             Layers[0].Neurons.Select((x, i) => x.Output = data[i]).ToList();
@@ -168,7 +168,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
             }
         }
 
-        private void UpdateWeights(NdArray<double> x, double learningRate = 0.1)
+        private void UpdateWeights(NDArray<double> x, double learningRate = 0.1)
         {
             for (int layerIndex = 1; layerIndex < Layers.Count; layerIndex++)
             {
@@ -179,7 +179,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 if (layerIndex > 1)
                 {
                     var layer2 = Layers[layerIndex - 1];
-                    inputs = new NdArray<double>() { NDim = 1 };
+                    inputs = new NDArray<double>();
                     inputs.Data = layer2.Neurons.Select(output => output.Output).ToList();
                 }
 

@@ -34,7 +34,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Matrix\" />
     <Folder Include="CNN\" />
   </ItemGroup>
 

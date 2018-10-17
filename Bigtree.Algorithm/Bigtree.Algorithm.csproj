@@ -34,9 +34,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Matrix\**" />
-    <EmbeddedResource Remove="Matrix\**" />
-    <None Remove="Matrix\**" />
+    <Folder Include="CNN\" />
   </ItemGroup>
 
   <ItemGroup>

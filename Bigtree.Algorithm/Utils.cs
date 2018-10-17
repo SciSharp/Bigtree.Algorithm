@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 
@@ -20,11 +21,7 @@ namespace Bigtree.Algorithm
                 Data = new List<NDArray<double>>()
             };
 
-            var y = new NDArray<int>()
-            {
-                NDim = 1,
-                Data = new List<int>()
-            };
+            var y = new NDArray<int>();
 
             using (StreamReader reader = new StreamReader(path))
             {
@@ -34,15 +31,7 @@ namespace Bigtree.Algorithm
                 {
                     var tokens = line.Split(',');
 
-                    if (X.NDim == -1)
-                    {
-                        X.NDim = tokens.Length - 1;
-                    }
-
-                    var row = new NDArray<double>
-                    {
-                        NDim = 1
-                    };
+                    var row = new NDArray<double>();
 
                     row.Data = tokens.Take(X.NDim).Select(x => (double)TypeDescriptor.GetConverter(typeof(double)).ConvertFrom(x)).ToList();
 

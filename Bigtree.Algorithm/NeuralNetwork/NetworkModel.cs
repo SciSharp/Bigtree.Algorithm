@@ -179,7 +179,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 if (layerIndex > 1)
                 {
                     var layer2 = Layers[layerIndex - 1];
-                    inputs = new NDArray<double>() { NDim = 1 };
+                    inputs = new NDArray<double>();
                     inputs.Data = layer2.Neurons.Select(output => output.Output).ToList();
                 }
 

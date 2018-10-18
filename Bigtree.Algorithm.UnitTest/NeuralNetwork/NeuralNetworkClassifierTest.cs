@@ -29,9 +29,9 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
             Console.WriteLine($"Reading '{filename}'...");
             (var X, var y) = Utils.ReadCsv(filename); // read as matrix of floats and int
             // normalize
-            X.Normalize(); 
+            X.Normalize();
             // extract shape of X
-            (var N, var d) = X.Shape; 
+            (var N, var d) = X.Shape2; 
 
             var nClasses = y.Unique().Length;
 

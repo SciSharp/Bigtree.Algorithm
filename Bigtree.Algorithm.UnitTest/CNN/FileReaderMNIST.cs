@@ -24,10 +24,10 @@ namespace MNIST.IO
     /// http://yann.lecun.com/exdb/mnist/
     public class FileReaderMNIST 
     {
-        public (NDArray<NDArray<double>>, NDArray<int>) LoadImagesAndLables(string labelFile, string imageFile)
+        public (NDArray<NDArray<double>>, NDArray<int>) LoadImagesAndLables(string labelFile, string imageFile, int total)
         {
-            var labels = LoadLabel(labelFile);
-            var images = LoadImages(imageFile);
+            var labels = LoadLabel(labelFile, total);
+            var images = LoadImages(imageFile, total);
 
             var np = new NDArray<double>();
 
@@ -45,7 +45,7 @@ namespace MNIST.IO
             return (ndImages, ndLabels);
         }
 
-        public IEnumerable<NDArray<double>> LoadImages(string imageFile)
+        public IEnumerable<NDArray<double>> LoadImages(string imageFile, int total)
         {
             /*
             TRAINING SET IMAGE FILE (train-images-idx3-ubyte):
@@ -72,7 +72,7 @@ namespace MNIST.IO
                         var rowCount = reader.ReadInt32MSB();  
                         var colCount = reader.ReadInt32MSB();
 
-                        for(var i=0; i<itemCount; i++)
+                        for(var i=0; i< total; i++)
                         {
                             var np = new NDArray<double>();
 
@@ -87,7 +87,7 @@ namespace MNIST.IO
             }
         }
 
-        public byte[] LoadLabel(string labelFile)
+        public byte[] LoadLabel(string labelFile, int total)
         {
             /*
             TRAINING SET LABEL FILE (train-labels-idx1-ubyte):
@@ -110,7 +110,7 @@ namespace MNIST.IO
                         var header = reader.ReadInt32MSB();
                         if (header != 0x801) throw new InvalidDataException(header.ToString("x"));
                         var itemCount = reader.ReadInt32MSB();
-                        return reader.ReadBytes(itemCount);
+                        return reader.ReadBytes(total);
                     }
                 }
             }

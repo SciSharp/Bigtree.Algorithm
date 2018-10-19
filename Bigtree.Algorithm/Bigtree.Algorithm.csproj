@@ -34,10 +34,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="CNN\" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\..\NumSharp\src\NumSharp\NumSharp.csproj" />
   </ItemGroup>
 

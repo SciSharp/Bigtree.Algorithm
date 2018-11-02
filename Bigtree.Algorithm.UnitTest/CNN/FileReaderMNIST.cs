@@ -24,21 +24,21 @@ namespace MNIST.IO
     /// http://yann.lecun.com/exdb/mnist/
     public class FileReaderMNIST 
     {
-        public (NDArray<NDArray<double>>, NDArray<int>) LoadImagesAndLables(string labelFile, string imageFile, int total)
+        public (NDArray<double>, NDArray<int>) LoadImagesAndLables(string labelFile, string imageFile, int total)
         {
             var labels = LoadLabel(labelFile, total);
             var images = LoadImages(imageFile, total);
 
             var np = new NDArray<double>();
 
-            var ndImages = new NDArray<NDArray<double>>();
+            var ndImages = new NDArray<double>().ReShape();
             var ndLabels = new NDArray<int>();
 
             var cc=0;
             foreach (var img in images)
             {
-                ndImages.Data.Add(img);
-                ndLabels.Data.Add(labels[cc]);
+                //ndImages.Data.Add(img);
+                //ndLabels.Data.Add(labels[cc]);
                 cc++;
             }
 
@@ -74,11 +74,11 @@ namespace MNIST.IO
 
                         for(var i=0; i< total; i++)
                         {
-                            var np = new NDArray<double>();
+                            var np = new NDArray<double>().Zeros(rowCount, colCount);
 
                             for(var r=0; r<rowCount; r++)
                                 for(var c=0; c<colCount; c++)
-                                    np.Data.Add(reader.ReadByte());
+                                    np[r, c] = reader.ReadByte();
 
                             yield return np;
                         }

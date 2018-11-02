@@ -31,12 +31,13 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
             // normalize
             X.Normalize();
             // extract shape of X
-            (var N, var d) = X.Shape2; 
+            var N = X.Shape[0];
+            var d = X.Shape[1];
 
-            var nClasses = y.Unique().Length;
+            var nClasses = y.Unique().Size;
 
             Console.WriteLine($"X.shape = {X.Shape}, y.shape = {y.Shape}");
-            Console.WriteLine($"size = {X.Data.Count}, dimesion = {X.NDim}, number of classes = {nClasses}");
+            Console.WriteLine($"size = {X.Size}, dimesion = {X.NDim}, number of classes = {nClasses}");
             Console.WriteLine($"hidden nodes = {n_hidden_nodes}, learning rate = {l_rate}, epochs = {n_epochs}");
 
             /* ===================================
@@ -81,10 +82,10 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
                 var y_train_predict = model.Predict(X_train);
                 var y_test_predict = model.Predict(X_test);
 
-                acc_train.Add(100 * y_train.Sum(y_train_predict) / y_train.Length);
-                acc_test.Add(100 * y_test.Sum(y_test_predict) / y_test.Length);
-
-                Console.WriteLine($"Fold {i + 1}/{n_folds}: train acc = {acc_train.Last()}%, test acc = {acc_test.Last()}% (n_train = {X_train.Length}, n_test = {X_test.Length})");
+                // acc_train.Add(100 * y_train.Sum(y_train_predict) / y_train.Length);
+                // acc_test.Add(100 * y_test.Sum(y_test_predict) / y_test.Length);
+                
+                // Console.WriteLine($"Fold {i + 1}/{n_folds}: train acc = {acc_train.Last()}%, test acc = {acc_test.Last()}% (n_train = {X_train.Length}, n_test = {X_test.Length})");
             }
 
             Console.WriteLine($"Avg train acc = {acc_train.Average()}%, avg test acc = {acc_test.Average()}%");

@@ -12,16 +12,14 @@ namespace Bigtree.Algorithm
 {
     public class Utils
     {
-        public static (NDArray<NDArray<double>>, NDArray<int>) ReadCsv(string path) 
+        public static (NDArray<double>, NDArray<int>) ReadCsv(string path) 
         {
             List<int> labels = new List<int>();
 
-            var X = new NDArray<NDArray<double>>
-            {
-                Data = new List<NDArray<double>>()
-            };
-
-            var y = new NDArray<int>();
+            var x1 = new List<double>();
+            var y1 = new List<int>();
+            int length1d = 0;
+            int length2d = 0;
 
             using (StreamReader reader = new StreamReader(path))
             {
@@ -30,21 +28,22 @@ namespace Bigtree.Algorithm
                 while (!String.IsNullOrEmpty(line = reader.ReadLine()))
                 {
                     var tokens = line.Split(',');
-
-                    var row = new NDArray<double>();
-
-                    row.Data = tokens.Take(X.NDim).Select(x => (double)TypeDescriptor.GetConverter(typeof(double)).ConvertFrom(x)).ToList();
-
-                    X.Data.Add(row);
+                    x1.AddRange(tokens.Select(x => double.Parse(x)).Take(tokens.Length - 2));
 
                     var _y = int.Parse(tokens[tokens.Length - 1]);
                     if (!labels.Contains(_y))
                     {
                         labels.Add(_y);
                     }
-                    y.Data.Add(labels.FindIndex(l => l == _y));
+                    y1.Add(labels.FindIndex(l => l == _y));
+
+                    length1d++;
+                    length2d = tokens.Length - 1;
                 }
             }
+
+            var X = new NDArray<double>().Array(x1.ToArray()).ReShape(length1d, length2d);
+            var y = new NDArray<int>().Array(y1.ToArray());
 
             return (X, y);
         }
@@ -54,7 +53,7 @@ namespace Bigtree.Algorithm
             var folds = new List<List<int>>();
 
             var np = new NDArray<int>();
-            var rands = np.Random().Permutation(N);
+            var rands = np.Random.Permutation(N);
 
             var N_fold = N / n_folds;
 

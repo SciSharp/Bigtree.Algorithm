@@ -8,14 +8,14 @@
     <PackageIconUrl></PackageIconUrl>
     <PackageProjectUrl>https://github.com/Oceania2018/Bigtree.MachineLearning</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Oceania2018/Bigtree.MachineLearning</RepositoryUrl>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <PackageTags>MachineLearning,Algorithm,CRF,HMM,SVM,Bayes,DecisionTree</PackageTags>
     <Authors>Haiping Chen, Peng Bo</Authors>
     <Copyright>Apache 2.0</Copyright>
     <Description>Machine Learning library in .NET Core.</Description>
     <PackageLicenseUrl>https://github.com/Oceania2018/Bigtree.MachineLearning/blob/master/LICENSE</PackageLicenseUrl>
     <Company>Haiping Chen</Company>
-    <PackageReleaseNotes>Milestone 0.1.0.</PackageReleaseNotes>
+    <PackageReleaseNotes>Add NumSharp reference.</PackageReleaseNotes>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
   </PropertyGroup>
 

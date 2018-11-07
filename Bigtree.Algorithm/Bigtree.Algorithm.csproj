@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
-    <Configurations>Debug;Release;RASA;DIALOGFLOW;ARTICULATE</Configurations>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+    <Configurations>Debug;Release</Configurations>
     <Platforms>AnyCPU;x64</Platforms>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageIconUrl></PackageIconUrl>
@@ -19,22 +19,9 @@
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RASA|AnyCPU'">
-    <OutputPath>bin\RASA</OutputPath>
-    <DefineConstants>TRACE;DEBUG;RASA</DefineConstants>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DIALOGFLOW|AnyCPU'">
-    <DefineConstants>DEBUG;TRACE;DIALOGFLOW;NETSTANDARD;NETSTANDARD2_0</DefineConstants>
-    <Optimize>false</Optimize>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ARTICULATE|AnyCPU'">
-    <DefineConstants>TRACE;ARTICULATE</DefineConstants>
-  </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\..\NumSharp\src\NumSharp\NumSharp.csproj" />
+    <ProjectReference Include="..\..\Pandas.NET\src\PandasNET\PandasNET.csproj" />
   </ItemGroup>
 
 </Project>

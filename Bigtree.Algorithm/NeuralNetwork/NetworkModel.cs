@@ -69,18 +69,18 @@ namespace Bigtree.Algorithm.NeuralNetwork
             while (iterations >= epoch)
             {
                 //Loop through the record
-                for (int i = 0; i < X.Data.Length; i++)
+                for (int i = 0; i < X.Shape[0]; i++)
                 {
                     // Create target output
-                    var y_target = new NDArray<int>().Zeros(Layers.Last().Neurons.Count);
+                    var y_target = new NumPy<int>().zeros(Layers.Last().Neurons.Count);
                     y_target[Y[i]] = 1;
                     // Forward-pass training example into network (updates node output)
-                    //var x_input = X.Get[i];
-                    //ForwardPropagation(x_input);
+                    var x_input = X.Vector(i);
+                    ForwardPropagation(x_input);
                     // Backward-pass error into network (updates node delta)
                     BackPropagation(y_target);
                     // Update network weights (using updated node delta and node output)
-                    //UpdateWeights(X.Data[i], learningRate);
+                    UpdateWeights(X.Vector(i), learningRate);
                 }
 
                 epoch++;
@@ -89,13 +89,13 @@ namespace Bigtree.Algorithm.NeuralNetwork
 
         public NDArray<int> Predict(NDArray<double> X)
         {
-            var y_predict = new NDArray<int>().Zeros(X.Size);
+            var y_predict = new NumPy<int>().zeros(X.Size);
             var np = new NDArray<double>();
 
-            for (int i = 0; i < X.Size; i++)
+            for (int i = 0; i < X.Shape[0]; i++)
             {
-                //var x = X.Get(i);
-                //ForwardPropagation(x);
+                var x = X.Vector(i);
+                ForwardPropagation(x);
                 var output = Layers[Layers.Count - 1].Neurons.Select(neuron => neuron.Output).ToList();
                 y_predict[i] = np.Array(output).ArgMax();
             }

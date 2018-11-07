@@ -17,7 +17,7 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
         public void SeedsClassificationTest()
         {
             var filename = @"data/seeds_dataset.csv";
-            var np = new NDArray<int>();
+            var np = new NumPy<int>();
             var n_hidden_nodes = 5; // nodes in hidden layers
             var l_rate = 0.6; // learning rate
             var n_epochs = 1000; // number of training epochs
@@ -31,8 +31,7 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
             // normalize
             X.Normalize();
             // extract shape of X
-            var N = X.Shape[0];
-            var d = X.Shape[1];
+            (var N, var d) = X.Shape.BiShape;
 
             var nClasses = y.Unique().Size;
 
@@ -45,7 +44,7 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
                These are a list of a list of indices for each fold
               =================================== */
 
-            var idx_all = np.ARange(N, 0);
+            var idx_all = np.arange(0, N);
             var idx_folds = Utils.CrossValFolds(N, 4);
 
             /* ===================================
@@ -82,10 +81,10 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
                 var y_train_predict = model.Predict(X_train);
                 var y_test_predict = model.Predict(X_test);
 
-                // acc_train.Add(100 * y_train.Sum(y_train_predict) / y_train.Length);
-                // acc_test.Add(100 * y_test.Sum(y_test_predict) / y_test.Length);
+                acc_train.Add(100 * y_train.Sum(y_train_predict) / y_train.Shape[0]);
+                acc_test.Add(100 * y_test.Sum(y_test_predict) / y_test.Shape[0]);
                 
-                // Console.WriteLine($"Fold {i + 1}/{n_folds}: train acc = {acc_train.Last()}%, test acc = {acc_test.Last()}% (n_train = {X_train.Length}, n_test = {X_test.Length})");
+                Console.WriteLine($"Fold {i + 1}/{n_folds}: train acc = {acc_train.Last()}%, test acc = {acc_test.Last()}% (n_train = {X_train.Shape[0]}, n_test = {X_test.Shape[0]})");
             }
 
             Console.WriteLine($"Avg train acc = {acc_train.Average()}%, avg test acc = {acc_test.Average()}%");

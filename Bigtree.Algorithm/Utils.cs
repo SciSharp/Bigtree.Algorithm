@@ -28,7 +28,7 @@ namespace Bigtree.Algorithm
                 while (!String.IsNullOrEmpty(line = reader.ReadLine()))
                 {
                     var tokens = line.Split(',');
-                    x1.AddRange(tokens.Select(x => double.Parse(x)).Take(tokens.Length - 2));
+                    x1.AddRange(tokens.Select(x => double.Parse(x)).Take(tokens.Length - 1));
 
                     var _y = int.Parse(tokens[tokens.Length - 1]);
                     if (!labels.Contains(_y))
@@ -52,8 +52,8 @@ namespace Bigtree.Algorithm
         {
             var folds = new List<List<int>>();
 
-            var np = new NDArray<int>();
-            var rands = np.Random.Permutation(N);
+            var np = new NumPy<int>();
+            var rands = np.random.Permutation(N);
 
             var N_fold = N / n_folds;
 

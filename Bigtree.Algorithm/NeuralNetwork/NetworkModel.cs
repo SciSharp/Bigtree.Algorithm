@@ -97,7 +97,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 var x = X.Vector(i);
                 ForwardPropagation(x);
                 var output = Layers[Layers.Count - 1].Neurons.Select(neuron => neuron.Output).ToList();
-                y_predict[i] = np.Array(output).ArgMax();
+                y_predict[i] = np.array(output).ArgMax();
             }
 
             return y_predict;
@@ -113,7 +113,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 var x = X[i];
                 ForwardPropagation(x);
                 var output = Layers[Layers.Count - 1].Neurons.Select(neuron => neuron.Output).ToList();
-                y_predict[i] = np.Array(output).ArgMax();
+                y_predict[i] = np.array(output).ArgMax();
             }
 
             return y_predict;

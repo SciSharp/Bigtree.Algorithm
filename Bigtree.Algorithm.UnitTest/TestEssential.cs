@@ -7,7 +7,7 @@ namespace Bigtree.Algorithm.UnitTest
 {
     public abstract class TestEssential
     {
-        protected IConfiguration Configuration { get; }
+        protected IConfigurationSection Configuration { get; }
 
         public TestEssential()
         {

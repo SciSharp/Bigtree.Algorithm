@@ -20,6 +20,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="NumSharp" Version="0.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\NumSharp\src\NumSharp\NumSharp.csproj" />
     <ProjectReference Include="..\..\Pandas.NET\src\PandasNET\PandasNET.csproj" />
   </ItemGroup>

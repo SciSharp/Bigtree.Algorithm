@@ -42,8 +42,8 @@ namespace Bigtree.Algorithm
                 }
             }
 
-            var X = new NDArray<double>().Array(x1.ToArray()).ReShape(length1d, length2d);
-            var y = new NDArray<int>().Array(y1.ToArray());
+            var X = new NDArray<double>().array(x1.ToArray()).reshape(length1d, length2d);
+            var y = new NDArray<int>().array(y1.ToArray());
 
             return (X, y);
         }

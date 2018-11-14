@@ -31,7 +31,7 @@ namespace MNIST.IO
 
             var np = new NDArray<double>();
 
-            var ndImages = new NDArray<double>().ReShape();
+            var ndImages = new NDArray<double>().reshape();
             var ndLabels = new NDArray<int>();
 
             var cc=0;

@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\MatplotlibCS\MatplotlibCS\MatplotlibCS.csproj" />
     <ProjectReference Include="..\..\NumSharp\src\NumSharp\NumSharp.csproj" />
     <ProjectReference Include="..\Bigtree.Algorithm\Bigtree.Algorithm.csproj" />
   </ItemGroup>

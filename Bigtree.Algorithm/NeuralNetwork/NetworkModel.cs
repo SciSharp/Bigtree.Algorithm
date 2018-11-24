@@ -1,6 +1,5 @@
 ﻿using Bigtree.Algorithm.MathFunctions;
-using NumSharp;
-using NumSharp.Extensions;
+using NumSharp.Core;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -11,7 +10,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
 {
     public class NetworkModel
     {
-
+        private NumPy np = new NumPy();
         public List<NeuralLayer> Layers { get; set; }
 
         public NetworkModel()
@@ -62,8 +61,9 @@ namespace Bigtree.Algorithm.NeuralNetwork
             }
         }
 
-        public void Train(NDArray<double> X, NDArray<int> Y, int iterations, double learningRate = 0.1)
+        public void Train(NDArray X, NDArray Y, int iterations, double learningRate = 0.1)
         {
+            var np = new NumPy();
             int epoch = 1;
             //Loop till the number of iterations
             while (iterations >= epoch)
@@ -72,54 +72,53 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 for (int i = 0; i < X.Shape[0]; i++)
                 {
                     // Create target output
-                    var y_target = new NumPy<int>().zeros(Layers.Last().Neurons.Count);
-                    y_target[Y[i]] = 1;
+                    var y_target = np.zeros<int>(Layers.Last().Neurons.Count);
+                    y_target[(int)Y[i]] = 1;
                     // Forward-pass training example into network (updates node output)
-                    var x_input = X.Vector(i);
+                    var x_input = X[i] as NDArray;
                     ForwardPropagation(x_input);
                     // Backward-pass error into network (updates node delta)
                     BackPropagation(y_target);
                     // Update network weights (using updated node delta and node output)
-                    UpdateWeights(X.Vector(i), learningRate);
+                    UpdateWeights(X[i] as NDArray, learningRate);
                 }
 
                 epoch++;
             }
         }
 
-        public NDArray<int> Predict(NDArray<double> X)
+        public NDArray Predict(NDArray X)
         {
-            var y_predict = new NumPy<int>().zeros(X.Size);
-            var np = new NDArray<double>();
+            var y_predict = np.zeros<int>(X.Shape[0]);
 
             for (int i = 0; i < X.Shape[0]; i++)
             {
-                var x = X.Vector(i);
+                var x = X[i] as NDArray;
                 ForwardPropagation(x);
                 var output = Layers[Layers.Count - 1].Neurons.Select(neuron => neuron.Output).ToList();
-                y_predict[i] = np.array(output).ArgMax();
+                y_predict[i] = np.array(output).argmax();
             }
 
             return y_predict;
         }
 
-        public NDArray<int> Predict(NDArray<NDArray<double>> X)
+        public NDArray Predict2(NDArray X)
         {
-            var y_predict = new NDArray<int>().Zeros(X.Size);
-            var np = new NDArray<double>();
+            var y_predict = np.zeros<int>(X.Size);
+            var nd = new NDArray(np.double8);
 
             for (int i = 0; i < X.Size; i++)
             {
-                var x = X[i];
+                var x = X[i] as NDArray;
                 ForwardPropagation(x);
                 var output = Layers[Layers.Count - 1].Neurons.Select(neuron => neuron.Output).ToList();
-                y_predict[i] = np.array(output).ArgMax();
+                y_predict[i] = np.array(output).argmax();
             }
 
             return y_predict;
         }
 
-        private void BackPropagation(NDArray<int> target)
+        private void BackPropagation(NDArray target)
         {
             for (int layerIndex = Layers.Count - 1; layerIndex > 0; layerIndex--)
             {
@@ -132,7 +131,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
                     if (layerIndex == Layers.Count - 1)
                     {
                         var neuron = layer.Neurons[neuronIndex];
-                        errors.Add(target[neuronIndex] - neuron.Output);
+                        errors.Add((int)target[neuronIndex] - neuron.Output);
                     }
                     // Previous layers: error = weights sum of frontward node deltas
                     else
@@ -162,10 +161,10 @@ namespace Bigtree.Algorithm.NeuralNetwork
         /// <summary>
         /// Perform forward-pass through network and update node outputs
         /// </summary>
-        private void ForwardPropagation(NDArray<double> data)
+        private void ForwardPropagation(NDArray data)
         {
             //Set the input data into the first layer
-            Layers[0].Neurons.Select((x, i) => x.Output = data[i]).ToList();
+            Layers[0].Neurons.Select((x, i) => x.Output = (double)data[i]).ToList();
 
             NeuralLayer preLayer = null;
 
@@ -184,7 +183,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
             }
         }
 
-        private void UpdateWeights(NDArray<double> x, double learningRate = 0.1)
+        private void UpdateWeights(NDArray x, double learningRate = 0.1)
         {
             for (int layerIndex = 1; layerIndex < Layers.Count; layerIndex++)
             {
@@ -195,17 +194,18 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 if (layerIndex > 1)
                 {
                     var layer2 = Layers[layerIndex - 1];
-                    inputs = new NDArray<double>();
-                    inputs.Data = layer2.Neurons.Select(output => output.Output).ToArray();
+                    inputs = new NDArray(np.double8);
+                    inputs.Set(layer2.Neurons.Select(output => output.Output).ToArray());
+                    inputs.reshape();
                 }
 
                 for (int n = 0; n < layer.Neurons.Count; n++)
                 {
                     var neuron = layer.Neurons[n];
 
-                    for (int i = 0; i < inputs.Data.Length; i++)
+                    for (int i = 0; i < inputs.Size; i++)
                     {
-                        neuron.InputDendrites[i].Weight += learningRate * neuron.Delta * x.Data[i];
+                        neuron.InputDendrites[i].Weight += learningRate * neuron.Delta * (double)x[i];
                     }
                     
                 }

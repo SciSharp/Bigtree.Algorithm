@@ -3,21 +3,21 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using NumSharp.Extensions;
-using NumSharp;
 using Bigtree.Algorithm.NeuralNetwork;
 using System.Linq;
+using NumSharp.Core;
 
 namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
 {
     [TestClass]
     public class NeuralNetworkClassifierTest
     {
+        private NumPy np = new NumPy();
+
         [TestMethod]
         public void SeedsClassificationTest()
         {
             var filename = @"data/seeds_dataset.csv";
-            var np = new NumPy<int>();
             var n_hidden_nodes = 5; // nodes in hidden layers
             var l_rate = 0.6; // learning rate
             var n_epochs = 1000; // number of training epochs
@@ -29,11 +29,11 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
             Console.WriteLine($"Reading '{filename}'...");
             (var X, var y) = Utils.ReadCsv(filename); // read as matrix of floats and int
             // normalize
-            X.Normalize();
+            X.normalize();
             // extract shape of X
             (var N, var d) = X.Shape.BiShape;
 
-            var nClasses = y.Unique().Size;
+            var nClasses = y.unique<int>().Size;
 
             Console.WriteLine($"X.shape = {X.Shape}, y.shape = {y.Shape}");
             Console.WriteLine($"size = {X.Size}, dimesion = {X.NDim}, number of classes = {nClasses}");
@@ -60,7 +60,7 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
             {
                 // Collect training and test data from folds
                 var idx_test = idx_folds[i];
-                var idx_train = idx_all.Delete(idx_test);
+                var idx_train = idx_all.delete(idx_test);
                 var X_train = X[idx_train];
                 var y_train = y[idx_train];
                 var X_test = X[idx_test];
@@ -81,8 +81,8 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
                 var y_train_predict = model.Predict(X_train);
                 var y_test_predict = model.Predict(X_test);
 
-                acc_train.Add(100 * y_train.Sum(y_train_predict) / y_train.Shape[0]);
-                acc_test.Add(100 * y_test.Sum(y_test_predict) / y_test.Shape[0]);
+                acc_train.Add(100 * y_train.sum(y_train_predict) / y_train.Shape[0]);
+                acc_test.Add(100 * y_test.sum(y_test_predict) / y_test.Shape[0]);
                 
                 Console.WriteLine($"Fold {i + 1}/{n_folds}: train acc = {acc_train.Last()}%, test acc = {acc_test.Last()}% (n_train = {X_train.Shape[0]}, n_test = {X_test.Shape[0]})");
             }

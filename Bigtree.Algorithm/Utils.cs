@@ -1,5 +1,5 @@
 ﻿using NumSharp;
-using NumSharp.Extensions;
+using NumSharp.Core;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -12,7 +12,7 @@ namespace Bigtree.Algorithm
 {
     public class Utils
     {
-        public static (NDArray<double>, NDArray<int>) ReadCsv(string path) 
+        public static (NDArray, NDArray) ReadCsv(string path) 
         {
             List<int> labels = new List<int>();
 
@@ -42,8 +42,10 @@ namespace Bigtree.Algorithm
                 }
             }
 
-            var X = new NDArray<double>().array(x1.ToArray()).reshape(length1d, length2d);
-            var y = new NDArray<int>().array(y1.ToArray());
+            var np = new NumPy();
+
+            var X = np.array(x1.ToArray()).reshape(length1d, length2d);
+            var y = np.array(y1.ToArray());
 
             return (X, y);
         }
@@ -52,14 +54,14 @@ namespace Bigtree.Algorithm
         {
             var folds = new List<List<int>>();
 
-            var np = new NumPy<int>();
-            var rands = np.random.Permutation(N);
+            var np = new NumPy();
+            var rands = np.random.permutation(N);
 
             var N_fold = N / n_folds;
 
             for(int i = 0; i < n_folds; i++)
             {
-                var list = rands.Data.Skip(N_fold * i).Take(N_fold).ToList();
+                var list = rands.Data<int>().Skip(N_fold * i).Take(N_fold).ToList();
                 folds.Add(list);
             }
 

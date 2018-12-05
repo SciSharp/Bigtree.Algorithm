@@ -30,7 +30,7 @@ namespace Bigtree.Algorithm.UnitTest.LinearRegression
             var matplotlibCs = new MatplotlibCS.MatplotlibCS("python", @"D:\Projects\MatplotlibCS\MatplotlibCS\Python\matplotlib_cs.py");
 
             var items = new List<PlotItem>();
-            for(int i = 0; i < x.Size; i++)
+            for(int i = 0; i < x.size; i++)
             {
                 items.Add(new Point2D($"P{i}", x.Data<double>(i), x.Data<double>(i))
                 {

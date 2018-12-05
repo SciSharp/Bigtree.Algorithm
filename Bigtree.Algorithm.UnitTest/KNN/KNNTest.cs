@@ -3,7 +3,6 @@ using PandasNET;
 using System;
 using System.Collections.Generic;
 using System.Text;
-using PandasNET.Extensions;
 
 namespace Bigtree.Algorithm.UnitTest.KNN
 {

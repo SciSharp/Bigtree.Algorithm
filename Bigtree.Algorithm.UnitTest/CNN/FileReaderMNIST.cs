@@ -30,7 +30,7 @@ namespace MNIST.IO
             var labels = LoadLabel(labelFile, total);
             var images = LoadImages(imageFile, total);
 
-            var ndImages = new NDArray(np.double8);
+            var ndImages = new NDArray(np.float64);
             var ndLabels = new NDArray(np.int32);
 
             var cc=0;

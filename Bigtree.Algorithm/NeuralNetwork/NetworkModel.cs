@@ -69,7 +69,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
             while (iterations >= epoch)
             {
                 //Loop through the record
-                for (int i = 0; i < X.Shape[0]; i++)
+                for (int i = 0; i < X.shape[0]; i++)
                 {
                     // Create target output
                     var y_target = np.zeros<int>(Layers.Last().Neurons.Count);
@@ -89,14 +89,14 @@ namespace Bigtree.Algorithm.NeuralNetwork
 
         public NDArray Predict(NDArray X)
         {
-            var y_predict = np.zeros<int>(X.Shape[0]);
+            var y_predict = np.zeros<int>(X.shape[0]);
 
-            for (int i = 0; i < X.Shape[0]; i++)
+            for (int i = 0; i < X.shape[0]; i++)
             {
                 var x = X[i] as NDArray;
                 ForwardPropagation(x);
                 var output = Layers[Layers.Count - 1].Neurons.Select(neuron => neuron.Output).ToList();
-                y_predict[i] = np.array(output).argmax();
+                y_predict[i] = np.array(output.ToArray()).argmax();
             }
 
             return y_predict;
@@ -104,15 +104,15 @@ namespace Bigtree.Algorithm.NeuralNetwork
 
         public NDArray Predict2(NDArray X)
         {
-            var y_predict = np.zeros<int>(X.Size);
-            var nd = new NDArray(np.double8);
+            var y_predict = np.zeros<int>(X.size);
+            var nd = new NDArray(np.float64);
 
-            for (int i = 0; i < X.Size; i++)
+            for (int i = 0; i < X.size; i++)
             {
                 var x = X[i] as NDArray;
                 ForwardPropagation(x);
                 var output = Layers[Layers.Count - 1].Neurons.Select(neuron => neuron.Output).ToList();
-                y_predict[i] = np.array(output).argmax();
+                y_predict[i] = np.array(output.ToArray()).argmax();
             }
 
             return y_predict;
@@ -194,7 +194,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 if (layerIndex > 1)
                 {
                     var layer2 = Layers[layerIndex - 1];
-                    inputs = new NDArray(np.double8);
+                    inputs = new NDArray(np.float64);
                     inputs.Set(layer2.Neurons.Select(output => output.Output).ToArray());
                     inputs.reshape();
                 }
@@ -203,7 +203,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 {
                     var neuron = layer.Neurons[n];
 
-                    for (int i = 0; i < inputs.Size; i++)
+                    for (int i = 0; i < inputs.size; i++)
                     {
                         neuron.InputDendrites[i].Weight += learningRate * neuron.Delta * (double)x[i];
                     }

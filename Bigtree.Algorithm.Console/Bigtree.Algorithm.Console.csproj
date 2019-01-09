@@ -6,7 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\NumSharp\src\NumSharp.Core\NumSharp.Core.csproj" />
+    <PackageReference Include="NumSharp" Version="0.6.4" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Bigtree.Algorithm\Bigtree.Algorithm.csproj" />
   </ItemGroup>
 

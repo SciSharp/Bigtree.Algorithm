@@ -42,8 +42,6 @@ namespace Bigtree.Algorithm
                 }
             }
 
-            var np = new NumPy();
-
             var X = np.array(x1.ToArray()).reshape(length1d, length2d);
             var y = np.array(y1.ToArray());
 
@@ -54,8 +52,7 @@ namespace Bigtree.Algorithm
         {
             var folds = new List<List<int>>();
 
-            var np = new NumPy();
-            var rands = np.random.permutation(N);
+            /*var rands = np.random.permutation(N);
 
             var N_fold = N / n_folds;
 
@@ -63,7 +60,7 @@ namespace Bigtree.Algorithm
             {
                 var list = rands.Data<int>().Skip(N_fold * i).Take(N_fold).ToList();
                 folds.Add(list);
-            }
+            }*/
 
             return folds;
         }

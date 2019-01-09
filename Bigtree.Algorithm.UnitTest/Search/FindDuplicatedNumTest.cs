@@ -9,7 +9,6 @@ namespace Bigtree.Algorithm.UnitTest.Search
     [TestClass]
     public class FindDuplicatedNumTest
     {
-        private NumPy np;
         private NDArray nd;
         private int repeated;
 
@@ -17,7 +16,6 @@ namespace Bigtree.Algorithm.UnitTest.Search
         public void Initialize()
         {
             repeated = -1;
-            np = new NumPy();
             nd = np.arange(10);
             nd[8] = 5;
             np.random.shuffle(nd);
@@ -26,11 +24,11 @@ namespace Bigtree.Algorithm.UnitTest.Search
         [TestMethod]
         public void FindDuplicatedNumber()
         {
-            repeated = Method1(nd.int32);
+            repeated = Method1(nd.Data<int>());
 
-            repeated = Method2(nd.int32);
+            repeated = Method2(nd.Data<int>());
 
-            repeated = Method4(nd.int32);
+            repeated = Method4(nd.Data<int>());
         }
 
         private int Method1(int[] a)
@@ -62,7 +60,7 @@ namespace Bigtree.Algorithm.UnitTest.Search
         [TestMethod]
         public void SLowFast()
         {
-            int[] array = nd.int32;
+            int[] array = nd.Data<int>();
             int slow = 0;
             int fast = 0;
 

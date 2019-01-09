@@ -1,5 +1,4 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
-using PandasNET;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -14,8 +13,8 @@ namespace Bigtree.Algorithm.UnitTest.KNN
         {
             string filePath = "./data/train.csv";
 
-            var pd = new Pandas();
-            var dataFrame = pd.read_csv(filePath);
+            //var pd = new Pandas();
+            //var dataFrame = pd.read_csv(filePath);
         }
     }
 }

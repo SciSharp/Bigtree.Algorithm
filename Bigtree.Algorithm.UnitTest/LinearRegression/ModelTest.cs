@@ -1,11 +1,9 @@
 ﻿using MatplotlibCS;
 using MatplotlibCS.PlotItems;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NumSharp;
 using NumSharp.Core;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 
 namespace Bigtree.Algorithm.UnitTest.LinearRegression
@@ -13,8 +11,6 @@ namespace Bigtree.Algorithm.UnitTest.LinearRegression
     [TestClass]
     public class ModelTest
     {
-        private NumPy np = new NumPy();
-
         [TestMethod]
         public void Regression()
         {
@@ -32,7 +28,7 @@ namespace Bigtree.Algorithm.UnitTest.LinearRegression
             var items = new List<PlotItem>();
             for(int i = 0; i < x.size; i++)
             {
-                items.Add(new Point2D($"P{i}", x.Data<double>(i), x.Data<double>(i))
+                items.Add(new Point2D($"P{i}", x.Data<double>()[i], x.Data<double>()[i])
                 {
                     MarkerFaceColor = Color.Black,
                     MarkerSize = 3

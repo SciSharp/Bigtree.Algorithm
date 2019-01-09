@@ -23,8 +23,6 @@ namespace MNIST.IO
     /// http://yann.lecun.com/exdb/mnist/
     public class FileReaderMNIST 
     {
-        private NumPy np = new NumPy();
-
         public (NDArray, NDArray) LoadImagesAndLables(string labelFile, string imageFile, int total)
         {
             var labels = LoadLabel(labelFile, total);

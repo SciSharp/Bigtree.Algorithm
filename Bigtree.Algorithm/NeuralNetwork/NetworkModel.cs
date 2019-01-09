@@ -10,7 +10,6 @@ namespace Bigtree.Algorithm.NeuralNetwork
 {
     public class NetworkModel
     {
-        private NumPy np = new NumPy();
         public List<NeuralLayer> Layers { get; set; }
 
         public NetworkModel()
@@ -63,7 +62,6 @@ namespace Bigtree.Algorithm.NeuralNetwork
 
         public void Train(NDArray X, NDArray Y, int iterations, double learningRate = 0.1)
         {
-            var np = new NumPy();
             int epoch = 1;
             //Loop till the number of iterations
             while (iterations >= epoch)
@@ -195,7 +193,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 {
                     var layer2 = Layers[layerIndex - 1];
                     inputs = new NDArray(np.float64);
-                    inputs.Set(layer2.Neurons.Select(output => output.Output).ToArray());
+                    inputs.Storage.SetData(layer2.Neurons.Select(output => output.Output).ToArray());
                     inputs.reshape();
                 }
 

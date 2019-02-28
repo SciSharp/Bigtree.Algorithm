@@ -85,6 +85,7 @@ namespace Bigtree.Algorithm.CRFLite
             }
             if (runCRF(xList, modelWriter, orthant, args) == false)
             {
+                Console.WriteLine("CRF encoding failed.");
             }
 
             modelWriter.SaveFeatureWeight(args.ModelFileName, args.BVQ);

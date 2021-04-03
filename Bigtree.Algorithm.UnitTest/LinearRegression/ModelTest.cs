@@ -1,7 +1,7 @@
 ﻿using MatplotlibCS;
 using MatplotlibCS.PlotItems;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NumSharp.Core;
+using NumSharp;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -14,7 +14,7 @@ namespace Bigtree.Algorithm.UnitTest.LinearRegression
         [TestMethod]
         public void Regression()
         {
-            var data_x = np.linspace<int>(1, 10, 100);
+            var data_x = np.linspace(1, 10, 100);
             var data_y = np.sin(data_x) + 0.1 * np.power(data_x, 2) + 0.5 * np.random.randn(100, 1);
             data_x /= (double)np.amax(data_x)[0];
 

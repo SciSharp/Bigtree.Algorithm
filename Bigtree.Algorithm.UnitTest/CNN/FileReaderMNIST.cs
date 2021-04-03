@@ -1,7 +1,7 @@
 using System.IO;
 using System.IO.Compression;
 using System.Collections.Generic;
-using NumSharp.Core;
+using NumSharp;
 
 namespace MNIST.IO
 {

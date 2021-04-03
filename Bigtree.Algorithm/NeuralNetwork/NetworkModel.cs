@@ -1,5 +1,5 @@
 ﻿using Bigtree.Algorithm.MathFunctions;
-using NumSharp.Core;
+using NumSharp;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -193,7 +193,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 {
                     var layer2 = Layers[layerIndex - 1];
                     inputs = new NDArray(np.float64);
-                    inputs.Storage.SetData(layer2.Neurons.Select(output => output.Output).ToArray());
+                    inputs.SetData(layer2.Neurons.Select(output => output.Output).ToArray());
                     inputs.reshape();
                 }
 

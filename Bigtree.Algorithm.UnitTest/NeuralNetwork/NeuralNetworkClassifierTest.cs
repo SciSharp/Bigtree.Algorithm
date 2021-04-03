@@ -1,11 +1,10 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
 using Bigtree.Algorithm.NeuralNetwork;
 using System.Linq;
-using NumSharp.Core;
+using NumSharp;
 
 namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
 {
@@ -27,11 +26,11 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
             Console.WriteLine($"Reading '{filename}'...");
             var (X, y) = Utils.ReadCsv(filename); // read as matrix of floats and int
             // normalize
-            X.normalize();
+            X.Normalize();
             // extract shape of X
-            var (N, d) = X.Storage.Shape.BiShape;
-
-            var nClasses = y.unique<int>().size;
+            var (N, d) = X.Shape;
+            
+            var nClasses = np.unique(y).size;
 
             Console.WriteLine($"X.shape = {X.shape}, y.shape = {y.shape}");
             Console.WriteLine($"size = {X.size}, dimesion = {X.ndim}, number of classes = {nClasses}");

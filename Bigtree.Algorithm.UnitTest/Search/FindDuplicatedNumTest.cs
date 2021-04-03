@@ -1,5 +1,5 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NumSharp.Core;
+using NumSharp;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -24,11 +24,11 @@ namespace Bigtree.Algorithm.UnitTest.Search
         [TestMethod]
         public void FindDuplicatedNumber()
         {
-            repeated = Method1(nd.Data<int>());
+            repeated = Method1(nd.ToArray<int>());
 
-            repeated = Method2(nd.Data<int>());
+            repeated = Method2(nd.ToArray<int>());
 
-            repeated = Method4(nd.Data<int>());
+            repeated = Method4(nd.ToArray<int>());
         }
 
         private int Method1(int[] a)
@@ -60,7 +60,7 @@ namespace Bigtree.Algorithm.UnitTest.Search
         [TestMethod]
         public void SLowFast()
         {
-            int[] array = nd.Data<int>();
+            int[] array = nd.ToArray<int>();
             int slow = 0;
             int fast = 0;
 

@@ -23,6 +23,7 @@ using System.IO;
 using System.Diagnostics;
 using Bigtree.Algorithm.Internal;
 using NumSharp;
+using NumSharp.Backends.Iteration;
 
 namespace Bigtree.Algorithm.SVM
 {
@@ -188,21 +189,26 @@ namespace Bigtree.Algorithm.SVM
             for (int c = 1; c < classes; c++)
                 start[c] = start[c - 1] + model.NumberOfSVPerClass[c - 1];
 
-            var pairs = new NDArray[classes * (classes - 1) / 2];
+            // Every pair's weights as one (support vectors, pairs) matrix, zero outside the pair's two classes, so all
+            // pairs come from ONE contiguous matrix product (a BLAS gemm once NumSharp's OpenBLAS package is enabled).
+            // Slicing the kernel per pair instead gave strided operands, which NumSharp's dot computes far slower.
+            int pairs = classes * (classes - 1) / 2;
+            var weights = new double[(long)model.SupportVectorCount * pairs];
             int p = 0;
             for (int i = 0; i < classes; i++)
                 for (int j = i + 1; j < classes; j++)
                 {
-                    int si = start[i], sj = start[j], ci = model.NumberOfSVPerClass[i], cj = model.NumberOfSVPerClass[j];
                     // The same coefficient rows as svm_predict_values: class i's support vectors are weighted by
                     // row j - 1, class j's by row i.
-                    NDArray fromI = np.dot(kernel[$":, {si}:{si + ci}"], np.array(model.SupportVectorCoefficients[j - 1][si..(si + ci)]));
-                    NDArray fromJ = np.dot(kernel[$":, {sj}:{sj + cj}"], np.array(model.SupportVectorCoefficients[i][sj..(sj + cj)]));
-                    pairs[p] = fromI + fromJ - model.Rho[p];
+                    for (int k = start[i]; k < start[i] + model.NumberOfSVPerClass[i]; k++)
+                        weights[(long)k * pairs + p] = model.SupportVectorCoefficients[j - 1][k];
+                    for (int k = start[j]; k < start[j] + model.NumberOfSVPerClass[j]; k++)
+                        weights[(long)k * pairs + p] = model.SupportVectorCoefficients[i][k];
                     p++;
                 }
 
-            return scope.Returns(np.stack(pairs, axis: 1));
+            NDArray weightMatrix = np.array(weights).reshape(model.SupportVectorCount, pairs);
+            return scope.Returns(np.dot(kernel, weightMatrix) - np.array(model.Rho.Take(pairs).ToArray()));
         }
 
         /// <summary>
@@ -230,18 +236,26 @@ namespace Bigtree.Algorithm.SVM
             if (type == SvmType.ONE_CLASS)
                 return scope.Returns(np.where(decision > 0, 1.0, -1.0));
 
+            // dec > 0 votes for the pair's first class i, anything else (0 included) for j: svm_predict_values' rule.
+            // With firsts[p, c] = (c == i), seconds[p, c] = (c == j), a sample's votes are
+            //   positive @ firsts + (1 - positive) @ seconds = positive @ (firsts - seconds) + column sums of seconds,
+            // one small matrix product for the whole batch instead of strided per-pair column updates.
             int classes = model.NumberOfClasses;
-            NDArray votes = np.zeros(new Shape(decision.shape[0], classes));
+            int pairs = classes * (classes - 1) / 2;
+            var swing = new double[pairs * classes];
+            var baseline = new double[classes];
             int p = 0;
             for (int i = 0; i < classes; i++)
                 for (int j = i + 1; j < classes; j++)
                 {
-                    // dec > 0 votes for i, anything else (0 included) for j: svm_predict_values' rule.
-                    NDArray forI = (decision[$":, {p}"] > 0).astype(np.float64);
-                    votes[$":, {i}"] = votes[$":, {i}"] + forI;
-                    votes[$":, {j}"] = votes[$":, {j}"] + (1.0 - forI);
+                    swing[p * classes + i] = 1;
+                    swing[p * classes + j] = -1;
+                    baseline[j] += 1;
                     p++;
                 }
+
+            NDArray positive = (decision > 0).astype(np.float64);
+            NDArray votes = np.dot(positive, np.array(swing).reshape(pairs, classes)) + np.array(baseline);
 
             // np.argmax takes the first maximum: the vote tie rule of libsvm.
             NDArray labels = np.array(model.ClassLabels.Select(label => (double)label).ToArray());
@@ -312,21 +326,26 @@ namespace Bigtree.Algorithm.SVM
                 samples = np.concatenate(new[] { samples, np.zeros(new Shape(samples.shape[0], width - samples.shape[1])) }, axis: 1);
 
             NDArray dot = np.dot(samples, supportVectors.T);
+            // The elementwise part of each kernel is one fused np.evaluate pass over the (samples, support vectors)
+            // matrix: unfused, the RBF formula alone made six full passes and five matrix-sized temporaries, which on
+            // large batches cost more than the matrix product itself. Same operations per element, same results.
             switch (parameter.KernelType)
             {
                 case KernelType.LINEAR:
                     return dot;
                 case KernelType.POLY:
-                    return np.power(parameter.Gamma * dot + parameter.Coefficient0, (double)parameter.Degree);
+                    return np.evaluate(NDExpr.Power(parameter.Gamma * (NDExpr)dot + parameter.Coefficient0, (double)parameter.Degree));
                 case KernelType.RBF:
                     {
-                        NDArray squared = np.sum(np.square(samples), axis: 1, keepdims: true) - 2.0 * dot
-                                          + np.sum(np.square(supportVectors), axis: 1);
-                        // The expansion can dip a hair below 0 where a sample equals a support vector.
-                        return np.exp(-parameter.Gamma * np.maximum(squared, 0.0));
+                        NDArray sampleNorms = np.sum(np.square(samples), axis: 1, keepdims: true);       // (samples, 1)
+                        NDArray vectorNorms = np.sum(np.square(supportVectors), axis: 1);                // (support vectors,)
+                        // |x - v|^2 = |x|^2 - 2 x.v + |v|^2, which can dip a hair below 0 where a sample equals a
+                        // support vector: clamp before the exponential.
+                        NDExpr squared = NDExpr.Maximum((NDExpr)sampleNorms - 2.0 * (NDExpr)dot + vectorNorms, 0.0);
+                        return np.evaluate(NDExpr.Exp(-parameter.Gamma * squared));
                     }
                 case KernelType.SIGMOID:
-                    return np.tanh(parameter.Gamma * dot + parameter.Coefficient0);
+                    return np.evaluate(NDExpr.Tanh(parameter.Gamma * (NDExpr)dot + parameter.Coefficient0));
                 default:
                     throw new NotSupportedException($"Kernel {parameter.KernelType} is not supported.");
             }

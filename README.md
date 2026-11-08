@@ -1,14 +1,113 @@
 # Bigtree.Algorithm
 
-Machine Learning library in .NET Core.
+Machine Learning library in .NET, computed on [NumSharp](https://github.com/SciSharp/NumSharp) 0.80.0 (net8.0 and
+net10.0).
 
 ### Implemented Models
 
-* SVM (Support Vector Machines)
-* CRF (Conditional Random Field)
-* KNN
-* Decision Tree
-* HMM (Hidden Markov Model)
-* Bayes
-* Linear Regression
-* Artificial Neural Network
+| Model | Classes | How it computes |
+|---|---|---|
+| SVM (Support Vector Machines) | `SVM.Training`, `Prediction`, `Model`, `Problem` | libsvm 3.x's SMO solver; batch prediction of an `NDArray` as a NumSharp kernel matrix |
+| CRF (Conditional Random Field) | `CRFLite.CRFEncoder`, `CRFDecoder` | CRFSharp (L-BFGS training, Viterbi decoding) |
+| KNN | `KNN.KnnModel` | distance matrix by one matrix product, `np.argpartition`, one-hot votes |
+| Decision Tree | `DecisionTree.Tree` | ID3; columns as NumSharp text arrays counted by `np.unique` + `np.bincount` |
+| HMM (Hidden Markov Model) | `HiddenMarkovModel.*` | forward/backward/Viterbi; Baum-Welch's E/M step on NumSharp for large problems |
+| Bayes | `Bayes.GaussianNaiveBayes`, `BernoulliNaiveBayes`, `MultinomiaNaiveBayes` | per-class reductions and matrix products |
+| Linear Regression | `LinearRegression.LinearRegressionModel` | centered normal equations solved by `np.linalg.solve` (managed) |
+| Artificial Neural Network | `NeuralNetwork.NetworkModel` | one weight matrix per layer, mini-batch backpropagation as matrix products |
+
+The NumSharp estimators follow scikit-learn's semantics with .NET names: `Fit(X, y)`, `Predict(X)`,
+`PredictProba(X)`, `Score(X, y)`, fitted attributes as properties (`Theta`, `Var`, `Coef`, ...). Labels can be any
+NumSharp dtype, text included.
+
+```csharp
+using Bigtree.Algorithm;
+using Bigtree.Algorithm.Bayes;
+using Bigtree.Algorithm.KNN;
+using Bigtree.Algorithm.NeuralNetwork;
+using Bigtree.Algorithm.SVM;
+using NumSharp;
+
+var (X, y) = Utils.ReadCsv("data/seeds_dataset.csv");       // np.loadtxt + np.unique
+X = Utils.Normalize(X);
+
+using var bayes = new GaussianNaiveBayes().Fit(X, y);
+NDArray proba = bayes.PredictProba(X);
+
+using var knn = new KnnModel(k: 5).Fit(X, y);
+var (distances, indices) = knn.KNeighbors(X["0:3"]);
+
+using var network = new NetworkModel();
+network.AddLayer(new NeuralLayer(7, "INPUT"));
+network.AddLayer(new NeuralLayer(5, "HIDDEN"));
+network.AddLayer(new NeuralLayer(3, "OUTPUT"));
+network.Build(seed: 1);
+network.Train(X, y, iterations: 1000, learningRate: 1.5, batchSize: 8);
+NDArray predicted = network.Predict(X);
+
+Model svm = Training.Train(Problem.FromNDArray(X, y), new Parameter { Gamma = 1.0 / 7 });
+NDArray labels = svm.PredictLabels(X);
+```
+
+`Bigtree.Algorithm.Console` runs every model on the seeds dataset.
+
+### Same numbers as scikit-learn
+
+`Bigtree.Algorithm.Tests.Oracle` embeds CPython through `NumSharp.Interop.pythonnet` and compares each estimator
+with scikit-learn 1.8 (or a NumPy / SciPy reference where scikit-learn has no twin) on the same arrays:
+
+- `GaussianNaiveBayes` is **bit-identical** to `GaussianNB` (`theta_`, `var_`, `class_prior_`, `epsilon_`, every
+  prediction output): it repeats scikit-learn's operations, and NumSharp's reductions and ufuncs are NumPy's.
+- `BernoulliNaiveBayes`: counts and log-probabilities bit-identical; probabilities to 1e-10 (scikit-learn's matrix
+  product runs on BLAS).
+- `KnnModel`: the same neighbours, vote fractions and labels as `KNeighborsClassifier`; distances to 1e-12.
+- `LinearRegressionModel`: `LinearRegression`'s coefficients to 1e-10 (SVD there, normal equations here).
+- The SVM: the same support vectors, dual coefficients, intercepts and one-vs-one decision values as `SVC` (to
+  1e-9); on the unit tests' problems every SVM type × kernel scores exactly `SVC` / `NuSVC`'s accuracy.
+- `NetworkModel`: NumPy's mini-batch backpropagation from the same weights, to 1e-12; Baum-Welch: a NumPy / SciPy
+  log-space implementation, to 1e-9; ID3's gains: `scipy.stats.entropy`; `Utils.CrossValFolds`: NumPy's
+  `default_rng(seed).permutation`, element for element.
+
+Run it with an interpreter that has NumPy, SciPy and scikit-learn:
+
+```bash
+NUMSHARP_PYTHONNET_PYTHON=/path/to/python dotnet test Bigtree.Algorithm.Tests.Oracle
+```
+
+Without the variable the oracle tests report Inconclusive (and fail under `CI=true`). The unit tests need no Python:
+
+```bash
+dotnet test Bigtree.Algorithm.UnitTest
+```
+
+### Performance
+
+`benchmarks/` compares 0.5.0 with 0.4.0's own code, in one process: Multinomial Naive Bayes training ×37 to ×216,
+Baum-Welch ×1.6 to ×2.25 from 25,000 observations × states² (unchanged below), SVM batch prediction ×1.5 to ×4.7.
+See [benchmarks/README.md](benchmarks/README.md).
+
+NumSharp spends a fixed 1.5-3 µs per call, so the estimators restructure their algorithms into whole-array
+operations instead of calling NumSharp per element or per sample. Where an algorithm is inherently sequential over
+small vectors (HMM recursions, the SMO solver, CRF decoding) it stays a scalar loop.
+
+### Memory
+
+NumSharp arrays live in unmanaged memory. The estimators implement `IDisposable` and own their fitted arrays: dispose
+a model (or let the finalizer do it) to return the buffers to NumSharp's pool, and never dispose an array a model
+exposes. Every array a method returns belongs to the caller. Inside the library, `[NDScoped]` methods (woven at build
+time by `NumSharp.Build`) return their temporaries to the pool on exit.
+
+### Changes from 0.4.0
+
+- net8.0 / net10.0 and NumSharp 0.80.0 (from netstandard2.0 and NumSharp 0.30.0).
+- `MultinomiaNaiveBayes`, the SVM types, `Probability`, `Feature`, `CRFLite` and the `Shuffle` / `Split` extensions
+  keep their API (CherubNLP compiles unchanged once it targets net8.0).
+- `NetworkModel` holds weight matrices: `Neuron` and `Dendrite` are gone, `NeuralLayer` is `(Count, Name)`,
+  `Train` takes a `batchSize`, `Build` a `seed`. Its two backpropagation bugs are fixed.
+- `Utils.CrossValFolds(N, n_folds, seed)` returns `NDArray[]` folds (0.4.0 returned none); `ReadCsv` numbers labels in
+  ascending order; `Utils.Normalize` replaces NumSharp 0.30's `NDArray.Normalize()`.
+- SVM: `RangeTransform` serves 1-based (libsvm) and 0-based features; polynomial-kernel predictions use `Gamma` as
+  training does; `Model.Write` keeps full precision; no false "weight not found" warnings; NDArray entry points.
+- HMM: the scaled forward/backward pair works (`++N` loop, missing first scale); Baum-Welch's convergence value
+  covers every sequence.
+- Decision tree: multi-class entropy; subtables keep the attributes left of the split.

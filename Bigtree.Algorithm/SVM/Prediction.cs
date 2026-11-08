@@ -178,20 +178,63 @@ namespace Bigtree.Algorithm.SVM
             if (model is null)
                 throw new ArgumentNullException(nameof(model));
             using var scope = NDScope.Open();
-            NDArray kernel = KernelMatrix(model, NDHelpers.Float64Matrix(X, nameof(X)));
-            SvmType type = model.Parameter.SvmType;
-            if (type == SvmType.ONE_CLASS || type == SvmType.EPSILON_SVR || type == SvmType.NU_SVR)
-                return scope.Returns(np.dot(kernel, np.array(model.SupportVectorCoefficients[0])) - model.Rho[0]);
+            NDArray samples = NDHelpers.Float64Matrix(X, nameof(X));
+            NDArray supportVectors = DenseSupportVectors(model, (int)samples.shape[1]);
+            if (supportVectors.shape[1] > samples.shape[1])
+                samples = np.concatenate(new[] { samples, np.zeros(new Shape(samples.shape[0], supportVectors.shape[1] - samples.shape[1])) }, axis: 1);
+            NDArray vectorNorms = model.Parameter.KernelType == KernelType.RBF ? np.sum(np.square(supportVectors), axis: 1) : null;
 
+            SvmType type = model.Parameter.SvmType;
+            bool single = type == SvmType.ONE_CLASS || type == SvmType.EPSILON_SVR || type == SvmType.NU_SVR;
+            NDArray weights, offsets;
+            if (single)
+            {
+                weights = np.array(model.SupportVectorCoefficients[0]);
+                offsets = np.array(new[] { model.Rho[0] }).reshape(new Shape());
+            }
+            else
+            {
+                (weights, offsets) = PairWeights(model);
+            }
+
+            // A block of rows at a time, each in its own scope: the (block, support vectors) kernel dies before the next
+            // block allocates its own, so memory stays at one block whatever the batch size (20,000 rows x 1,960
+            // support vectors computed at once peaked at 695 MB).
+            long rows = samples.shape[0];
+            long blockRows = Math.Max(1, BlockElements / Math.Max(1, model.SupportVectorCount));
+            NDArray result = single ? np.empty(new Shape(rows)) : np.empty(new Shape(rows, offsets.size));
+            for (long start = 0; start < rows; start += blockRows)
+            {
+                using var block = NDScope.Open();
+                string range = $"{start}:{Math.Min(start + blockRows, rows)}";
+                NDArray kernel = KernelBlock(model.Parameter, samples[range], supportVectors, vectorNorms);
+                result[range] = np.dot(kernel, weights) - offsets;
+            }
+            return scope.Returns(result);
+        }
+
+        /// <summary>
+        ///     The number of elements a block's kernel matrix may hold: 4,194,304 float64 (32 MB). Batch prediction computes
+        ///     the kernel of that many (sample, support vector) pairs at a time.
+        /// </summary>
+        private const long BlockElements = 1L << 22;
+
+        /// <summary>
+        ///     Every class pair's weights as one (support vectors, pairs) matrix, zero outside the pair's two classes, so
+        ///     all pairs come from ONE contiguous matrix product (a BLAS gemm once NumSharp's OpenBLAS package is enabled);
+        ///     slicing the kernel per pair instead gave strided operands, which NumSharp's dot computes far slower.
+        /// </summary>
+        /// <param name="model">A classification model.</param>
+        /// <returns>The weights, and every pair's rho to subtract (pairs,).</returns>
+        [NDScopedCovered]
+        private static (NDArray weights, NDArray offsets) PairWeights(Model model)
+        {
             // Support vectors are stored grouped by class: class c owns rows start[c] .. start[c] + count[c].
             int classes = model.NumberOfClasses;
             var start = new int[classes];
             for (int c = 1; c < classes; c++)
                 start[c] = start[c - 1] + model.NumberOfSVPerClass[c - 1];
 
-            // Every pair's weights as one (support vectors, pairs) matrix, zero outside the pair's two classes, so all
-            // pairs come from ONE contiguous matrix product (a BLAS gemm once NumSharp's OpenBLAS package is enabled).
-            // Slicing the kernel per pair instead gave strided operands, which NumSharp's dot computes far slower.
             int pairs = classes * (classes - 1) / 2;
             var weights = new double[(long)model.SupportVectorCount * pairs];
             int p = 0;
@@ -207,8 +250,7 @@ namespace Bigtree.Algorithm.SVM
                     p++;
                 }
 
-            NDArray weightMatrix = np.array(weights).reshape(model.SupportVectorCount, pairs);
-            return scope.Returns(np.dot(kernel, weightMatrix) - np.array(model.Rho.Take(pairs).ToArray()));
+            return (np.array(weights).reshape(model.SupportVectorCount, pairs), np.array(model.Rho.Take(pairs).ToArray()));
         }
 
         /// <summary>
@@ -291,24 +333,24 @@ namespace Bigtree.Algorithm.SVM
         }
 
         /// <summary>
-        ///     The kernel value of every sample against every support vector, as one NumSharp matrix.
+        ///     The support vectors as a dense matrix: row k, column <c>index - 1</c>.
         /// </summary>
         /// <param name="model">The trained model.</param>
-        /// <param name="samples">Validated float64 samples, column <c>j</c> = feature <c>j + 1</c>.</param>
-        /// <returns>A float64 (samples, support vectors) array.</returns>
+        /// <param name="columns">The query matrix's column count; the result is at least that wide.</param>
+        /// <returns>
+        ///     A float64 (support vectors, width) array, width = the larger of <paramref name="columns"/> and the highest
+        ///     feature index, so a feature the query lacks still counts in the RBF norms (the query is padded with zeros).
+        /// </returns>
         /// <exception cref="NotSupportedException">The model uses a precomputed kernel.</exception>
         /// <exception cref="InvalidOperationException">A support vector has feature index 0.</exception>
         [NDScopedCovered]
-        private static NDArray KernelMatrix(Model model, NDArray samples)
+        private static NDArray DenseSupportVectors(Model model, int columns)
         {
-            Parameter parameter = model.Parameter;
-            if (parameter.KernelType == KernelType.PRECOMPUTED)
+            if (model.Parameter.KernelType == KernelType.PRECOMPUTED)
                 throw new NotSupportedException("A precomputed-kernel model has no feature matrix to compute kernels from; use the Node[] API.");
 
-            // Densify the support vectors: row k, column index - 1. Features beyond X's columns widen both matrices
-            // (X with zero columns), so the RBF norms still count them.
             int vectors = model.SupportVectorCount;
-            int width = (int)samples.shape[1];
+            int width = columns;
             for (int k = 0; k < vectors; k++)
                 foreach (Node node in model.SupportVectors[k])
                 {
@@ -321,10 +363,21 @@ namespace Bigtree.Algorithm.SVM
             for (int k = 0; k < vectors; k++)
                 foreach (Node node in model.SupportVectors[k])
                     dense[(long)k * width + node.Index - 1] = node.Value;
-            NDArray supportVectors = np.array(dense).reshape(vectors, width);
-            if (width > samples.shape[1])
-                samples = np.concatenate(new[] { samples, np.zeros(new Shape(samples.shape[0], width - samples.shape[1])) }, axis: 1);
+            return np.array(dense).reshape(vectors, width);
+        }
 
+        /// <summary>
+        ///     The kernel value of every sample of a block against every support vector, as one NumSharp matrix.
+        /// </summary>
+        /// <param name="parameter">The model's kernel parameters.</param>
+        /// <param name="samples">One block of validated float64 samples, as wide as <paramref name="supportVectors"/>.</param>
+        /// <param name="supportVectors">The dense support vectors (<see cref="DenseSupportVectors"/>).</param>
+        /// <param name="vectorNorms">The squared norm of every support vector (RBF only, else <c>null</c>).</param>
+        /// <returns>A float64 (samples, support vectors) array.</returns>
+        /// <exception cref="NotSupportedException">The kernel type is not one of LINEAR, POLY, RBF, SIGMOID.</exception>
+        [NDScopedCovered]
+        private static NDArray KernelBlock(Parameter parameter, NDArray samples, NDArray supportVectors, NDArray vectorNorms)
+        {
             NDArray dot = np.dot(samples, supportVectors.T);
             // The elementwise part of each kernel is one fused np.evaluate pass over the (samples, support vectors)
             // matrix: unfused, the RBF formula alone made six full passes and five matrix-sized temporaries, which on
@@ -338,7 +391,6 @@ namespace Bigtree.Algorithm.SVM
                 case KernelType.RBF:
                     {
                         NDArray sampleNorms = np.sum(np.square(samples), axis: 1, keepdims: true);       // (samples, 1)
-                        NDArray vectorNorms = np.sum(np.square(supportVectors), axis: 1);                // (support vectors,)
                         // |x - v|^2 = |x|^2 - 2 x.v + |v|^2, which can dip a hair below 0 where a sample equals a
                         // support vector: clamp before the exponential.
                         NDExpr squared = NDExpr.Maximum((NDExpr)sampleNorms - 2.0 * (NDExpr)dot + vectorNorms, 0.0);

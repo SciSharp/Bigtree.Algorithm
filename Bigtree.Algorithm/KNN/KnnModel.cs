@@ -1,5 +1,6 @@
 ﻿using Bigtree.Algorithm.Internal;
 using NumSharp;
+using NumSharp.Backends.Iteration;
 using System;
 
 namespace Bigtree.Algorithm.KNN
@@ -12,8 +13,10 @@ namespace Bigtree.Algorithm.KNN
     /// <remarks>
     ///     <para><b>How it computes.</b> Brute force over whole arrays: the squared distances of a batch to every
     ///     training sample are <c>|x|^2 - 2 x . t + |t|^2</c>, one matrix product (scikit-learn computes them the same
-    ///     way); <c>np.argpartition</c> picks the <see cref="K"/> smallest per row without sorting the rest; the votes
-    ///     are a one-hot sum. Memory grows with (samples, training samples), so predict very large batches in chunks.</para>
+    ///     way, here fused into one <c>np.evaluate</c> pass); <c>np.argpartition</c> picks the <see cref="K"/> smallest per
+    ///     row without sorting the rest; the votes are one <c>np.bincount</c>. Queries run in blocks of at most 4,194,304
+    ///     distances (32 MB), each in its own <see cref="NDScope"/>, so memory does not grow with the batch: 8,000 queries
+    ///     against 8,000 training samples peaked at 3.0 GB computed at once.</para>
     ///     <para><b>Ties.</b> A vote tie goes to the class that comes first in <see cref="Classes"/> (ascending order),
     ///     like scikit-learn. Neighbours at exactly equal distance are an arbitrary pick between them, in scikit-learn
     ///     too.</para>
@@ -92,13 +95,24 @@ namespace Bigtree.Algorithm.KNN
         [NDScoped]
         public (NDArray distances, NDArray indices) KNeighbors(NDArray X)
         {
-            NDArray squared = SquaredDistances(CheckFeatures(X));
-            NDArray nearest = Nearest(squared);
-            // argpartition leaves the K nearest unordered: sort just those K per row.
-            NDArray nearestSquared = np.take_along_axis(squared, nearest, axis: 1);
-            NDArray order = np.argsort(nearestSquared, axis: 1);
-            NDArray indices = np.take_along_axis(nearest, order, axis: 1);
-            NDArray distances = np.sqrt(np.take_along_axis(nearestSquared, order, axis: 1));
+            NDArray samples = CheckFeatures(X);
+            long rows = samples.shape[0];
+            NDArray distances = np.empty(new Shape(rows, K));
+            NDArray indices = np.empty(new Shape(rows, K), np.int64);
+            for (long start = 0; start < rows; start += BlockRows)
+            {
+                // One query block at a time, in its own scope: its (block, training samples) matrices are returned to
+                // the pool before the next block allocates them, so memory stays at one block whatever the batch size.
+                using var block = NDScope.Open();
+                string range = $"{start}:{Math.Min(start + BlockRows, rows)}";
+                NDArray squared = SquaredDistances(samples[range]);
+                NDArray nearest = Nearest(squared);
+                // argpartition leaves the K nearest unordered: sort just those K per row.
+                NDArray nearestSquared = np.take_along_axis(squared, nearest, axis: 1);
+                NDArray order = np.argsort(nearestSquared, axis: 1);
+                indices[range] = np.take_along_axis(nearest, order, axis: 1);
+                distances[range] = np.sqrt(np.take_along_axis(nearestSquared, order, axis: 1));
+            }
             return (distances, indices);
         }
 
@@ -142,16 +156,28 @@ namespace Bigtree.Algorithm.KNN
             GC.SuppressFinalize(this);
         }
 
+        /// <summary>
+        ///     The number of elements a query block's distance matrix may hold: 4,194,304 float64 (32 MB). Queries are
+        ///     processed in blocks of that many distances, so predicting a batch of any size needs a few such matrices,
+        ///     where computing all distances at once needed (queries × training samples) several times over (8,000 ×
+        ///     8,000 peaked at 3.0 GB).
+        /// </summary>
+        private const long BlockElements = 1L << 22;
+
+        /// <summary>The query rows per block: as many as fit <see cref="BlockElements"/> distances, at least one.</summary>
+        private long BlockRows => Math.Max(1, BlockElements / TrainingSamples.shape[0]);
+
         /// <summary>The squared Euclidean distance of every query sample to every training sample.</summary>
-        /// <param name="samples">Validated float64 query samples.</param>
+        /// <param name="samples">Validated float64 query samples (one block).</param>
         /// <returns>A float64 (samples, training samples) array, never negative.</returns>
         [NDScopedCovered]
         private NDArray SquaredDistances(NDArray samples)
         {
             NDArray queryNorms = np.sum(np.square(samples), axis: 1, keepdims: true);
-            NDArray squared = queryNorms - 2.0 * np.dot(samples, TrainingSamples.T) + _trainingNorms;
-            // The expansion can come out a hair below 0 for (near) duplicates; a distance is never negative.
-            return np.maximum(squared, 0.0);
+            NDArray dot = np.dot(samples, TrainingSamples.T);
+            // |x|^2 - 2 x.t + |t|^2 in one fused pass over the product (one result matrix instead of four
+            // temporaries); the expansion can come out a hair below 0 for (near) duplicates, and a distance never is.
+            return np.evaluate(NDExpr.Maximum((NDExpr)queryNorms - 2.0 * (NDExpr)dot + _trainingNorms, 0.0));
         }
 
         /// <summary>The training rows of the <see cref="K"/> smallest distances of every query row, in no particular order.</summary>
@@ -167,11 +193,21 @@ namespace Bigtree.Algorithm.KNN
         [NDScopedCovered]
         private NDArray Votes(NDArray samples)
         {
-            NDArray neighbourCodes = TrainingCodes[Nearest(SquaredDistances(samples))];     // (samples, K)
-            // One-hot every neighbour's class and add the K rows: (samples, K, classes) summed over K.
-            NDArray onehot = (neighbourCodes.reshape(neighbourCodes.shape[0], K, 1) == np.arange(Classes.size).reshape(1, 1, -1))
-                .astype(np.float64);
-            return np.sum(onehot, axis: 1);
+            long rows = samples.shape[0], classes = Classes.size;
+            NDArray votes = np.empty(new Shape(rows, classes));
+            for (long start = 0; start < rows; start += BlockRows)
+            {
+                // A scope per block: the block's distances die before the next block allocates its own.
+                using var block = NDScope.Open();
+                long stop = Math.Min(start + BlockRows, rows);
+                NDArray codes = TrainingCodes[Nearest(SquaredDistances(samples[$"{start}:{stop}"]))];   // (block, K)
+                // Shift row r's class codes into slots r * classes .. r * classes + classes - 1: one bincount then
+                // counts every row's votes at once, without a (block, K, classes) one-hot tensor.
+                NDArray slots = codes + (np.arange(stop - start) * classes).reshape(-1, 1);
+                NDArray counts = np.bincount(slots.reshape(-1), minlength: (int)((stop - start) * classes));
+                votes[$"{start}:{stop}"] = counts.reshape(stop - start, classes).astype(np.float64);
+            }
+            return votes;
         }
 
         /// <summary>Validates query input against the fitted model.</summary>

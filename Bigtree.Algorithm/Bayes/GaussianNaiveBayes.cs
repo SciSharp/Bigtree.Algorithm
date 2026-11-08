@@ -99,9 +99,12 @@ namespace Bigtree.Algorithm.Bayes
             var counts = new double[classCount];
             for (int i = 0; i < classCount; i++)
             {
+                // A scope per class: the copy of the class's rows (and the mask) is freed before the next class's,
+                // instead of every class's copy living until the fit returns.
+                using var perClass = NDScope.Open();
                 NDArray members = samples[codes == i];
-                means[i] = np.mean(members, axis: 0);
-                variances[i] = np.var(members, axis: 0);
+                means[i] = perClass.Returns(np.mean(members, axis: 0));
+                variances[i] = perClass.Returns(np.var(members, axis: 0));
                 counts[i] = members.shape[0];
             }
 
@@ -137,12 +140,16 @@ namespace Bigtree.Algorithm.Bayes
             var columns = new NDArray[Classes.size];
             for (int i = 0; i < columns.Length; i++)
             {
+                // A scope per class: its three (samples, features) temporaries are freed before the next class
+                // allocates them again. In the method's one scope all classes' temporaries stayed alive until it
+                // returned: 100,000 x 50 with 10 classes peaked at 1.4 GB for a 40 MB input.
+                using var perClass = NDScope.Open();
                 NDArray theta = Theta[i], variance = Var[i];
                 // scikit-learn's _joint_log_likelihood, term for term: a scalar normalizer, minus half the
                 // variance-weighted squared distance of every sample, plus the log prior.
                 NDArray normalizer = -0.5 * np.sum(np.log(2.0 * Math.PI * variance));
                 NDArray distance = normalizer - 0.5 * np.sum(np.square(samples - theta) / variance, axis: 1);
-                columns[i] = logPrior[i] + distance;
+                columns[i] = perClass.Returns(logPrior[i] + distance);
             }
 
             // scikit-learn stacks the per-class columns as rows and transposes: the (samples, classes) result is a

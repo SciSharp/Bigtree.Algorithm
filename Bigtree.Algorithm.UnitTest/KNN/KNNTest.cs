@@ -3,6 +3,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NumSharp;
 using System;
 using System.IO;
+using System.Linq;
 
 namespace Bigtree.Algorithm.UnitTest.KNN
 {
@@ -79,6 +80,39 @@ namespace Bigtree.Algorithm.UnitTest.KNN
 
             using var model = new KnnModel(k: 5).Fit(scaled[train], y[train]);
             Assert.IsTrue(model.Score(scaled[test], y[test]) >= 0.85, "seeds is easy for 5-NN");
+        }
+
+        /// <summary>
+        ///     Queries are processed in blocks of 4,194,304 distances: with 4,200 training samples a block holds 998 rows,
+        ///     so 2,500 queries take three blocks. The rows on both sides of each block boundary have the neighbours and
+        ///     votes of a plain scalar brute-force search, and Predict agrees with KNeighbors' majority.
+        /// </summary>
+        [TestMethod]
+        public void BlocksAgreeWithBruteForce()
+        {
+            using var scope = NDScope.Open();
+            var rng = np.random.default_rng(11);
+            NDArray X = rng.normal(size: new Shape(4200, 3)), Q = rng.normal(size: new Shape(2500, 3));
+            NDArray y = (X[":, 0"] * X[":, 1"] > 0).astype(np.int64) + (X[":, 2"] > 1).astype(np.int64);
+            using var model = new KnnModel(k: 6).Fit(X, y);
+            var (distances, indices) = model.KNeighbors(Q);
+            NDArray proba = model.PredictProba(Q);
+
+            double[] train = X.ToArray<double>(), queries = Q.ToArray<double>();
+            long[] labels = y.ToArray<long>();
+            foreach (int row in new[] { 0, 997, 998, 1995, 1996, 2499 })
+            {
+                var expected = Enumerable.Range(0, 4200)
+                    .Select(t => (t, d: Math.Sqrt(Enumerable.Range(0, 3).Sum(f => Math.Pow(queries[row * 3 + f] - train[t * 3 + f], 2)))))
+                    .OrderBy(pair => pair.d).Take(6).ToArray();
+                for (int k = 0; k < 6; k++)
+                {
+                    Assert.AreEqual(expected[k].t, indices.GetInt64(row, k), $"row {row}, neighbour {k}");
+                    Assert.AreEqual(expected[k].d, distances.GetDouble(row, k), 1e-12, $"row {row}, distance {k}");
+                }
+                for (int c = 0; c < 3; c++)
+                    Assert.AreEqual(expected.Count(pair => labels[pair.t] == c) / 6.0, proba.GetDouble(row, c), 1e-15, $"row {row}, class {c}");
+            }
         }
 
         /// <summary>k below 1, too few samples and an unfitted model are refused.</summary>

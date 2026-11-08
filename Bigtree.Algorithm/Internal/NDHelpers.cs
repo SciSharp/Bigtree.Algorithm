@@ -1,5 +1,6 @@
 using System;
 using NumSharp;
+using NumSharp.Backends.Iteration;
 
 namespace Bigtree.Algorithm.Internal
 {
@@ -180,9 +181,24 @@ namespace Bigtree.Algorithm.Internal
         }
 
         /// <summary>The logistic function <c>1 / (1 + exp(-z))</c>, element-wise.</summary>
-        /// <param name="z">A float64 array of activations.</param>
+        /// <param name="z">An array of activations; float64 takes the compiled single pass.</param>
         /// <returns>An array of <paramref name="z"/>'s shape with values in (0, 1).</returns>
+        /// <remarks>
+        ///     A float64 <paramref name="z"/> goes through <see cref="SigmoidProgram"/>: one fused pass and one result
+        ///     array instead of four ufunc calls (negative, exp, add, divide), each with its own temporary. The bits are
+        ///     the four calls' (same operations, same order). Any other dtype keeps the ufunc chain, whose NEP 50
+        ///     promotion the float64-only program would refuse.
+        /// </remarks>
         [NDScopedCovered]
-        internal static NDArray Sigmoid(NDArray z) => 1.0 / (1.0 + np.exp(-z));
+        internal static NDArray Sigmoid(NDArray z)
+            => z.typecode == NPTypeCode.Double ? SigmoidProgram.Evaluate(new[] { z }) : 1.0 / (1.0 + np.exp(-z));
+
+        /// <summary>
+        ///     <c>1 / (1 + exp(-Input(0)))</c> compiled once for a float64 operand: each evaluation skips the tree
+        ///     building and typing that <c>np.evaluate</c> repeats per call (about 1 µs saved on a small batch).
+        /// </summary>
+        /// <remarks>Immutable and safe to evaluate from several threads (each evaluation builds its own iterator).</remarks>
+        private static readonly CompiledExpression SigmoidProgram =
+            (1.0 / (1.0 + NDExpr.Exp(NDExpr.Negate(NDExpr.Input(0))))).Compile(NPTypeCode.Double);
     }
 }

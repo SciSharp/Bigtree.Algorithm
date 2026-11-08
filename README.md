@@ -14,7 +14,7 @@ net10.0).
 | HMM (Hidden Markov Model) | `HiddenMarkovModel.*` | forward/backward/Viterbi; Baum-Welch on Rabiner's scaled forward-backward |
 | Bayes | `Bayes.GaussianNaiveBayes`, `BernoulliNaiveBayes`, `MultinomiaNaiveBayes` | per-class reductions and matrix products; the multinomial one counts each feature value in one SIMD pass over its samples' vectors |
 | Linear Regression | `LinearRegression.LinearRegressionModel` | centered normal equations solved by `np.linalg.solve` (managed) |
-| Artificial Neural Network | `NeuralNetwork.NetworkModel` | one weight matrix per layer, mini-batch backpropagation as matrix products |
+| Artificial Neural Network | `NeuralNetwork.NetworkModel` | one weight matrix per layer, mini-batch backpropagation as matrix products and compiled `NDExpr` programs |
 
 The NumSharp estimators follow scikit-learn's semantics with .NET names: `Fit(X, y)`, `Predict(X)`,
 `PredictProba(X)`, `Score(X, y)`, fitted attributes as properties (`Theta`, `Var`, `Coef`, ...). Labels can be any
@@ -90,6 +90,9 @@ and ID3 ×15 to ×70 against 0.5.0's first port (0.4.0's ID3 cannot grow those t
 NumSharp spends a fixed 1.5-3 µs per call, so the estimators restructure their algorithms into whole-array
 operations instead of calling NumSharp per element or per sample. Where an algorithm is inherently sequential over
 small vectors (HMM recursions, the SMO solver, CRF decoding, growing a tree over coded columns) it stays a scalar loop.
+Element-wise formulas run as one fused `np.evaluate` pass (KNN distances, SVM kernels), and the neural network's
+(sigmoid, deltas, weight update) as `NDExpr` programs compiled once: 11 NumSharp calls per training step instead of
+about 24, the same weights to the bit, training 1.7 times faster at batch size 32 and 3 times at batch size 1.
 
 ### Memory
 

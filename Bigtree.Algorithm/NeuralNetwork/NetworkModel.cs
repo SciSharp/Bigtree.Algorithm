@@ -1,5 +1,6 @@
 ﻿using Bigtree.Algorithm.Internal;
 using NumSharp;
+using NumSharp.Backends.Iteration;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -30,10 +31,11 @@ namespace Bigtree.Algorithm.NeuralNetwork
     ///     per-sample stochastic gradient descent of Bigtree 0.4.0 with its two bugs fixed: the hidden error now sums
     ///     the next layer's deltas only, and each layer's update now uses its own input (the previous layer's output)
     ///     instead of the network input.</para>
-    ///     <para><b>Batch size is a speed choice.</b> NumSharp spends a fixed 1.5-3 µs per call, so per-sample
-    ///     training on a small network is dominated by that cost (the 7-5-3 seeds network measured about 80 times
-    ///     slower than plain loops at batch size 1); a batch of 32 rows divides it by 32. Larger batches make fewer,
-    ///     averaged updates per epoch, so they may need more epochs or a larger learning rate.</para>
+    ///     <para><b>Batch size is a speed choice.</b> NumSharp spends a fixed 1-3 µs per call, so per-sample training
+    ///     on a small network is dominated by that cost: the 7-5-3 seeds network trains about 7 times slower than the
+    ///     same algorithm in plain C# loops at batch size 1, and about 4 times faster at batch size 32, where a step's
+    ///     NumSharp calls (11 for two weight layers) serve 32 rows. Larger batches make fewer, averaged updates per
+    ///     epoch, so they may need more epochs or a larger learning rate.</para>
     ///     <para><b>Ownership.</b> <see cref="Weights"/> belong to the model: never dispose them. Dispose the model (or
     ///     let the finalizer do it) to return their buffers to NumSharp's pool.</para>
     /// </remarks>
@@ -127,8 +129,10 @@ namespace Bigtree.Algorithm.NeuralNetwork
             {
                 for (long start = 0; start < rows; start += batchSize)
                 {
-                    long stop = Math.Min(start + batchSize, rows);
-                    Step(samples[$"{start}:{stop}"], targets[$"{start}:{stop}"], learningRate);
+                    // A Slice object is the view NumSharp builds from slice notation, without formatting and parsing a
+                    // string for every batch.
+                    var batch = new Slice(start, Math.Min(start + batchSize, rows));
+                    Step(samples[batch], targets[batch], learningRate);
                 }
             }
         }
@@ -169,6 +173,12 @@ namespace Bigtree.Algorithm.NeuralNetwork
         /// <param name="x">The batch's samples, shape (batch, input neurons).</param>
         /// <param name="target">The batch's one-hot targets, shape (batch, output neurons).</param>
         /// <param name="learningRate">The step size; the batch's summed update is divided by its row count.</param>
+        /// <remarks>
+        ///     Besides its matrix products, a step is three element-wise formulas, each one compiled
+        ///     <see cref="Kernels"/> program (one fused pass, one result) instead of a chain of ufunc calls with a
+        ///     temporary each: 11 NumSharp calls per step for two weight layers instead of about 24, which is what a small
+        ///     batch pays for. The operations and their order are the unfused formulas', so the weights keep their bits.
+        /// </remarks>
         [NDScoped]
         private void Step(NDArray x, NDArray target, double learningRate)
         {
@@ -179,19 +189,47 @@ namespace Bigtree.Algorithm.NeuralNetwork
                 activations[l + 1] = NDHelpers.Sigmoid(np.dot(activations[l], Weights[l].T));
 
             NDArray output = activations[layers];
-            NDArray delta = (target - output) * output * (1.0 - output);
-            double rate = learningRate / x.shape[0];
+            NDArray delta = Kernels.OutputDelta.Evaluate(new[] { target, output });
+            // A 0-d float64 operand: the update program streams it at stride 0, as the ufunc's scalar operand was.
+            NDArray rate = NDArray.Scalar(learningRate / x.shape[0]);
             for (int l = layers - 1; l >= 0; l--)
             {
                 NDArray input = activations[l];
                 // The next delta must use this layer's weights BEFORE their update: every delta of a backward pass
                 // comes from the weights the forward pass used.
-                NDArray previous = l > 0 ? np.dot(delta, Weights[l]) * input * (1.0 - input) : null;
-                // In place: Weights[l] was allocated outside this scope, so writing into it (instead of assigning a
-                // new array, which this scope would reclaim on return) is what keeps the update.
-                np.add(Weights[l], rate * np.dot(delta.T, input), @out: Weights[l]);
+                NDArray previous = l > 0 ? Kernels.HiddenDelta.Evaluate(new[] { np.dot(delta, Weights[l]), input }) : null;
+                // In place through out= (the program may alias an input): Weights[l] was allocated outside this scope, so
+                // writing into it (instead of assigning a new array, which this scope would reclaim on return) is what
+                // keeps the update.
+                Kernels.Update.Evaluate(new[] { Weights[l], np.dot(delta.T, input), rate }, @out: Weights[l]);
                 delta = previous;
             }
+        }
+
+        /// <summary>
+        ///     The element-wise formulas of <see cref="Step"/>, compiled once as positional float64 programs: an
+        ///     evaluation does only the per-call work (iteration shape, result, iterator), not the tree building and
+        ///     typing <c>np.evaluate</c> repeats per call.
+        /// </summary>
+        /// <remarks>
+        ///     Each program's operations, and their order, are the unfused formula's in its summary, so the results are
+        ///     bit-identical to the ufunc chains. The programs are immutable and safe to evaluate from several threads; a
+        ///     non-float64 operand is a <c>TypeError</c>, which <see cref="CheckInput"/> and <see cref="OneHotTargets"/>
+        ///     rule out (both hand <see cref="Step"/> float64).
+        /// </remarks>
+        private static class Kernels
+        {
+            /// <summary>The output layer's delta, <c>(target - output) * output * (1 - output)</c>: Input(0) is the target, Input(1) the output.</summary>
+            internal static readonly CompiledExpression OutputDelta =
+                ((NDExpr.Input(0) - NDExpr.Input(1)) * NDExpr.Input(1) * (1.0 - NDExpr.Input(1))).Compile(NPTypeCode.Double, NPTypeCode.Double);
+
+            /// <summary>A hidden layer's delta, <c>back * input * (1 - input)</c>: Input(0) is the next layer's delta through its weights, Input(1) the layer's input.</summary>
+            internal static readonly CompiledExpression HiddenDelta =
+                (NDExpr.Input(0) * NDExpr.Input(1) * (1.0 - NDExpr.Input(1))).Compile(NPTypeCode.Double, NPTypeCode.Double);
+
+            /// <summary>The weight update, <c>weights + rate * gradient</c>: Input(0) the weights, Input(1) the gradient, Input(2) the 0-d rate.</summary>
+            internal static readonly CompiledExpression Update =
+                (NDExpr.Input(0) + NDExpr.Input(2) * NDExpr.Input(1)).Compile(NPTypeCode.Double, NPTypeCode.Double, NPTypeCode.Double);
         }
 
         /// <summary>Validates network input against the built layers.</summary>

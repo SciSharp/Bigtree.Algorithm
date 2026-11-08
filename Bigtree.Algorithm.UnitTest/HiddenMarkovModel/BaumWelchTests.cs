@@ -24,38 +24,47 @@ namespace Bigtree.Algorithm.UnitTest.HiddenMarkovModel
         private static readonly double[] TruePi = { 0.6, 0.4 };
 
         /// <summary>
-        ///     After the same number of iterations from the same start, the NumSharp E/M step and 0.4.0's scalar loops
-        ///     learn the same probabilities (to rounding: the sums run in another order).
+        ///     After the same number of iterations from the same start, Run and 0.4.0's scalar re-estimation learn the
+        ///     same probabilities. 750 observations × 2² states run the scalar path; 7,200 × 2² (28,800, above the
+        ///     25,000 gate) the NumSharp E/M step, which matches to rounding (its sums run in another order).
         /// </summary>
+        /// <param name="count">The number of sequences.</param>
+        /// <param name="length">The length of every sequence.</param>
         [TestMethod]
-        public void MatchesTheScalarReEstimation()
+        [DataRow(25, 30, DisplayName = "scalar path")]
+        [DataRow(60, 120, DisplayName = "NumSharp path")]
+        public void MatchesTheScalarReEstimation(int count, int length)
         {
-            int[][] sequences = Sample(new Random(1), count: 25, length: 30);
-            var vectorized = StartModel();
+            int[][] sequences = Sample(new Random(1), count, length);
+            var trained = StartModel();
             var scalar = StartModel();
 
-            new BaumWelchLearning(vectorized) { Iterations = 8, Tolerance = double.NegativeInfinity }.Run(sequences);
+            new BaumWelchLearning(trained) { Iterations = 8, Tolerance = double.NegativeInfinity }.Run(sequences);
             ScalarBaumWelch(scalar, sequences, mSteps: 7);
 
-            AssertClose(scalar.LogProbabilityVector, vectorized.LogProbabilityVector);
-            AssertClose(Flatten(scalar.LogTransitionMatrix), Flatten(vectorized.LogTransitionMatrix));
-            AssertClose(Flatten(scalar.LogEmissionMatrix), Flatten(vectorized.LogEmissionMatrix));
+            AssertClose(scalar.LogProbabilityVector, trained.LogProbabilityVector);
+            AssertClose(Flatten(scalar.LogTransitionMatrix), Flatten(trained.LogTransitionMatrix));
+            AssertClose(Flatten(scalar.LogEmissionMatrix), Flatten(trained.LogEmissionMatrix));
         }
 
-        /// <summary>Sequence weights shift the re-estimation exactly as in 0.4.0.</summary>
+        /// <summary>Sequence weights shift the re-estimation exactly as in 0.4.0, on both paths.</summary>
+        /// <param name="count">The number of sequences.</param>
+        /// <param name="length">The length of every sequence.</param>
         [TestMethod]
-        public void WeightedSequencesMatchTheScalarReEstimation()
+        [DataRow(6, 12, DisplayName = "scalar path")]
+        [DataRow(60, 120, DisplayName = "NumSharp path")]
+        public void WeightedSequencesMatchTheScalarReEstimation(int count, int length)
         {
-            int[][] sequences = Sample(new Random(2), count: 6, length: 12);
-            double[] weights = { 1, 2, 0.5, 3, 1, 1.5 };
-            var vectorized = StartModel();
+            int[][] sequences = Sample(new Random(2), count, length);
+            double[] weights = Enumerable.Range(0, count).Select(k => 0.5 + (k % 4) * 0.75).ToArray();
+            var trained = StartModel();
             var scalar = StartModel();
 
-            new BaumWelchLearning(vectorized) { Iterations = 4, Tolerance = double.NegativeInfinity }.Run(sequences, weights);
+            new BaumWelchLearning(trained) { Iterations = 4, Tolerance = double.NegativeInfinity }.Run(sequences, weights);
             ScalarBaumWelch(scalar, sequences, mSteps: 3, weights);
 
-            AssertClose(Flatten(scalar.LogTransitionMatrix), Flatten(vectorized.LogTransitionMatrix));
-            AssertClose(Flatten(scalar.LogEmissionMatrix), Flatten(vectorized.LogEmissionMatrix));
+            AssertClose(Flatten(scalar.LogTransitionMatrix), Flatten(trained.LogTransitionMatrix));
+            AssertClose(Flatten(scalar.LogEmissionMatrix), Flatten(trained.LogEmissionMatrix));
         }
 
         /// <summary>

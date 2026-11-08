@@ -1,4 +1,5 @@
 ﻿using Bigtree.Algorithm.HiddenMarkovModel.Helpers;
+using Bigtree.Algorithm.HiddenMarkovModel.MathHelpers;
 using Bigtree.Algorithm.Internal;
 using NumSharp;
 using System;
@@ -14,15 +15,17 @@ namespace Bigtree.Algorithm.HiddenMarkovModel.Learning.Unsupervised
     /// <remarks>
     ///     <para><b>How it computes.</b> The forward and backward recursions run per sequence as scalar loops (each
     ///     time step depends on the previous one and touches only N states, where a NumSharp call would cost more than
-    ///     the arithmetic). Everything after them runs on NumSharp over all sequences at once, stacked row after row:
-    ///     the state posteriors <c>gamma</c> (rows, N), the transition posteriors <c>ksi</c> (transitions, N, N), and
-    ///     the re-estimation, whose emission counts are one matrix product with the one-hot observations. The
-    ///     probabilities stay in log space throughout, as before.</para>
+    ///     the arithmetic). From about 25,000 (observations × states²) on, everything after them runs on NumSharp over
+    ///     all sequences at once, stacked row after row: the state posteriors <c>gamma</c> (rows, N), the transition
+    ///     posteriors <c>ksi</c> (transitions, N, N), and the re-estimation, whose emission counts are one matrix
+    ///     product with the one-hot observations: 1.6 to 2.1 times faster than the scalar loops on 4,000 to 100,000
+    ///     observations. Smaller problems keep 0.4.0's scalar loops, which NumSharp's fixed per-call cost cannot beat
+    ///     there (see <see cref="VectorizedMinimumWork"/>). The probabilities stay in log space throughout.</para>
     ///     <para><b>Changed in 0.5.0.</b> The convergence log-likelihood sums the likelihood of every sequence (in log
     ///     space) before dividing by the sequence count, as in the Accord.NET algorithm this class derives from;
-    ///     Bigtree 0.4.0 reset it for every sequence and so measured only the last one. The discrete
-    ///     <see cref="Run(int[][], double[])"/> no longer fills the per-sequence <see cref="mLogGamma"/> and
-    ///     <see cref="mLogKsi"/> scratch arrays (the continuous variant still does).</para>
+    ///     Bigtree 0.4.0 reset it for every sequence and so measured only the last one. The vectorized path does
+    ///     not fill the per-sequence <see cref="mLogGamma"/> and <see cref="mLogKsi"/> scratch arrays (the scalar path
+    ///     and the continuous variant still do).</para>
     /// </remarks>
     public partial class BaumWelchLearning : IUnsupervisedLearning
     {
@@ -115,6 +118,36 @@ namespace Bigtree.Algorithm.HiddenMarkovModel.Learning.Unsupervised
             }
 
             int N = mModel.StateCount;
+            long rowCount = observations_db.Sum(sequence => (long)sequence.Length);
+
+            // NumSharp spends a fixed 1.5-3 µs per call, and the vectorized E/M step makes about a hundred calls per
+            // iteration whatever the size; it overtakes the scalar loops at about 25,000 (rows × N²) elements.
+            return rowCount * N * N < VectorizedMinimumWork
+                ? RunScalar(observations_db)
+                : RunVectorized(observations_db);
+        }
+
+        /// <summary>
+        ///     The problem size (total observations × states²) from which <see cref="Run(int[][], double[])"/> computes
+        ///     the E/M step on NumSharp; below it the scalar loops are faster.
+        /// </summary>
+        /// <remarks>
+        ///     Measured on 2026-11-08 (10 iterations, Release, best of 5): 1,000 rows × 3 states (9,000) scalar 17.8 ms
+        ///     vs NumSharp 19.7 ms; 2,000 × 3 (18,000) 30.7 vs 32.6 ms; 4,000 × 3 (36,000) 61.5 vs 37.5 ms; 2,000 × 5
+        ///     (50,000) 91.6 vs 53.4 ms; 40,000 × 10 9.3 s vs 4.4 s.
+        /// </remarks>
+        private const long VectorizedMinimumWork = 25_000;
+
+        /// <summary>
+        ///     Baum-Welch with every E/M step on NumSharp over all sequences at once (see the class remarks); the
+        ///     forward and backward recursions stay scalar per sequence.
+        /// </summary>
+        /// <param name="observations_db">The validated observation sequences.</param>
+        /// <returns>The final average log-likelihood.</returns>
+        private double RunVectorized(int[][] observations_db)
+        {
+            int K = observations_db.Length;
+            int N = mModel.StateCount;
             double[,] logA = mModel.LogTransitionMatrix;
             double[,] logB = mModel.LogEmissionMatrix;
             double[] logPi = mModel.LogProbabilityVector;
@@ -159,6 +192,197 @@ namespace Bigtree.Algorithm.HiddenMarkovModel.Learning.Unsupervised
 
                 iteration++;
                 should_continue = Iterate(layout, forward, backward, oldLogLikelihood, iteration, out newLogLikelihood);
+            } while (should_continue);
+
+            return newLogLikelihood;
+        }
+
+        /// <summary>
+        ///     Baum-Welch with Bigtree 0.4.0's scalar loops, for problems below <see cref="VectorizedMinimumWork"/>,
+        ///     where NumSharp's per-call cost would outweigh its arithmetic. Same results as the vectorized path to
+        ///     rounding; fills <see cref="mLogGamma"/> and <see cref="mLogKsi"/> as 0.4.0 did.
+        /// </summary>
+        /// <param name="observations_db">The validated observation sequences.</param>
+        /// <returns>The final average log-likelihood.</returns>
+        private double RunScalar(int[][] observations_db)
+        {
+            int K = observations_db.Length;
+
+            int N = mModel.StateCount;
+            double lnK = System.Math.Log(K);
+
+            double[,] logA = mModel.LogTransitionMatrix;
+            double[,] logB = mModel.LogEmissionMatrix;
+            double[] logPi = mModel.LogProbabilityVector;
+
+            int M = mModel.SymbolCount;
+
+            mLogGamma = new double[K][,];
+            mLogKsi = new double[K][][,];
+
+            for (int k = 0; k < K; ++k)
+            {
+                int T = observations_db[k].Length;
+                mLogGamma[k] = new double[T, N];
+                mLogKsi[k] = new double[T][,];
+
+                for (int t = 0; t < T; ++t)
+                {
+                    mLogKsi[k][t] = new double[N, N];
+                }
+            }
+
+            int maxT = observations_db.Max(x => x.Length);
+            double[,] lnfwd = new double[maxT, N];
+            double[,] lnbwd = new double[maxT, N];
+
+            // Initialize the model log-likelihoods
+            double newLogLikelihood = Double.NegativeInfinity;
+            double oldLogLikelihood = Double.NegativeInfinity;
+
+            int iteration = 0;
+            double deltaLogLikelihood = 0;
+            bool should_continue = true;
+
+            do // Until convergence or max iterations is reached
+            {
+                oldLogLikelihood = newLogLikelihood;
+                // Once per iteration, summed over every sequence below: 0.4.0 reset it inside the sequence loop, so
+                // only the last sequence's likelihood was measured.
+                newLogLikelihood = Double.NegativeInfinity;
+
+                for (int k = 0; k < K; ++k)
+                {
+                    int[] observations = observations_db[k];
+                    double[,] logGamma = mLogGamma[k];
+                    double[][,] logKsi = mLogKsi[k];
+                    double w = mLogWeights[k];
+                    int T = observations.Length;
+
+                    ForwardBackwardAlgorithm.LogForward(logA, logB, logPi, observations, lnfwd);
+                    ForwardBackwardAlgorithm.LogBackward(logA, logB, logPi, observations, lnbwd);
+
+                    // Compute Gamma values
+                    for (int t = 0; t < T; ++t)
+                    {
+                        double lnsum = double.NegativeInfinity;
+                        for (int i = 0; i < N; ++i)
+                        {
+                            logGamma[t, i] = lnfwd[t, i] + lnbwd[t, i] + w;
+                            lnsum = LogHelper.LogSum(lnsum, logGamma[t, i]);
+                        }
+                        if (lnsum != Double.NegativeInfinity)
+                        {
+                            for (int i = 0; i < N; ++i)
+                            {
+                                logGamma[t, i] = logGamma[t, i] - lnsum;
+                            }
+                        }
+                    }
+
+                    // Compute Ksi values
+                    for (int t = 0; t < T - 1; ++t)
+                    {
+                        double lnsum = double.NegativeInfinity;
+                        int x = observations[t + 1];
+
+                        for (int i = 0; i < N; ++i)
+                        {
+                            for (int j = 0; j < N; ++j)
+                            {
+                                logKsi[t][i, j] = lnfwd[t, i] + logA[i, j] + lnbwd[t + 1, j] + logB[j, x] + w;
+                                lnsum = LogHelper.LogSum(lnsum, logKsi[t][i, j]);
+                            }
+                        }
+
+                        for (int i = 0; i < N; ++i)
+                        {
+                            for (int j = 0; j < N; ++j)
+                            {
+                                logKsi[t][i, j] = logKsi[t][i, j] - lnsum;
+                            }
+                        }
+                    }
+
+                    for (int i = 0; i < N; ++i)
+                    {
+                        newLogLikelihood = LogHelper.LogSum(newLogLikelihood, lnfwd[T - 1, i]);
+                    }
+                }
+
+                newLogLikelihood /= K;
+
+                deltaLogLikelihood = newLogLikelihood - oldLogLikelihood;
+
+                iteration++;
+
+                if (ShouldTerminate(deltaLogLikelihood, iteration))
+                {
+                    should_continue = false;
+                }
+                else
+                {
+                    // update pi
+                    for (int i = 0; i < N; ++i)
+                    {
+                        double lnsum = double.NegativeInfinity;
+                        for (int k = 0; k < K; ++k)
+                        {
+                            lnsum = LogHelper.LogSum(lnsum, mLogGamma[k][0, i]);
+                        }
+                        logPi[i] = lnsum - lnK;
+                    }
+
+                    // update A
+                    for (int i = 0; i < N; ++i)
+                    {
+                        for (int j = 0; j < N; ++j)
+                        {
+                            double lndenom = double.NegativeInfinity;
+                            double lnnum = double.NegativeInfinity;
+
+                            for (int k = 0; k < K; ++k)
+                            {
+                                int T = observations_db[k].Length;
+
+                                for (int t = 0; t < T - 1; ++t)
+                                {
+                                    lnnum = LogHelper.LogSum(lnnum, mLogKsi[k][t][i, j]);
+                                    lndenom = LogHelper.LogSum(lndenom, mLogGamma[k][t, i]);
+                                }
+                            }
+
+                            logA[i, j] = (lnnum == lndenom) ? 0 : lnnum - lndenom;
+                        }
+                    }
+
+                    // update B
+                    for (int i = 0; i < N; ++i)
+                    {
+                        for (int m = 0; m < M; ++m)
+                        {
+                            double lndenom = double.NegativeInfinity;
+                            double lnnum = double.NegativeInfinity;
+
+                            for (int k = 0; k < K; ++k)
+                            {
+                                int[] observations = observations_db[k];
+                                int T = observations.Length;
+
+                                for (int t = 0; t < T; ++t)
+                                {
+                                    lndenom = LogHelper.LogSum(lndenom, mLogGamma[k][t, i]);
+
+                                    if (observations[t] == m)
+                                    {
+                                        lnnum = LogHelper.LogSum(lnnum, mLogGamma[k][t, i]);
+                                    }
+                                }
+                            }
+                            logB[i, m] = lnnum - lndenom;
+                        }
+                    }
+                }
             } while (should_continue);
 
             return newLogLikelihood;

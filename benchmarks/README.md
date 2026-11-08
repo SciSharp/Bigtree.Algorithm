@@ -6,16 +6,18 @@ Each file is a .NET 10 file-based app that references the library project; run i
 dotnet run -c Release benchmarks/MultinomialNaiveBayes.cs
 dotnet run -c Release benchmarks/BaumWelch.cs
 dotnet run -c Release benchmarks/SvmBatchPrediction.cs
+dotnet run -c Release benchmarks/DecisionTree.cs
 ```
 
 The baselines are Bigtree 0.4.0's own code, copied verbatim into the scripts, so every comparison runs both versions
-in one process on the same data. Ratios are 0.4.0 time / 0.5.0 time (higher is better). Timings are the best of
-several rounds after a warm-up that lets the tier-1 JIT compile; the Baum-Welch and SVM scripts interleave their two
-contenders round by round, so background load slows both alike. Release builds only: a Debug build distorts both
+in one process on the same data; the decision tree's is 0.5.0's first port, since 0.4.0's ID3 cannot grow those
+trees (see its section). Ratios are baseline time / 0.5.0 time (higher is better). Timings are the best of several
+rounds after a warm-up that lets the tier-1 JIT compile; the Baum-Welch, SVM and decision-tree scripts interleave their
+two contenders round by round, so background load slows both alike. Release builds only: a Debug build distorts both
 sides.
 
-Results on 2026-11-08 (Windows 11, .NET 10, NumSharp 0.80.0, managed kernels; the machine was ~25% busy with other
-work, which the best-of-N method filters out):
+Results on 2026-11-08, the SVM and decision-tree tables on 2026-11-09 (Windows 11, .NET 10, NumSharp 0.80.0, managed
+kernels; the machine was ~25% busy with other work, which the best-of-N method filters out):
 
 ## Multinomial Naive Bayes training (CherubNLP's pass: every label × feature × value through `CalCondProb`)
 
@@ -52,9 +54,28 @@ now (0.42 s instead of 15.2 s). The learned parameters agree with 0.4.0's to rou
 
 | support vectors, rows × features, classes | per-row (`Predict(Model, Node[])`) | batch (`PredictLabels(Model, NDArray)`) | ratio |
 |---|---|---|---|
-| 281, 1,000 × 8, 3 | 5.9 ms | 3.9 ms | ×1.5 |
-| 988, 5,000 × 20, 4 | 194.9 ms | 66.1 ms | ×2.9 |
-| 1,999, 10,000 × 50, 5 | 1,888 ms | 399.7 ms | ×4.7 |
+| 281, 1,000 × 8, 3 | 6.2 ms | 4.0 ms | ×1.6 |
+| 988, 5,000 × 20, 4 | 197.1 ms | 69.6 ms | ×2.8 |
+| 1,999, 10,000 × 50, 5 | 2,379 ms | 341.5 ms | ×7.0 |
 
 The batch path computes the kernel matrix with one matrix product plus one fused `np.evaluate` pass, every class
-pair's decision values with one more product, and the votes with a third; the labels equal the per-row ones.
+pair's decision values with one more product, and the votes with a third; the labels equal the per-row ones. It runs
+in blocks of 2^22 kernel entries (32 MB), each block's temporaries returned before the next: 20,000 rows × 1,960
+support vectors peaked at 186 MB, against 696 MB with the whole kernel matrix at once, in the same time.
+
+## ID3 decision tree (noisy XOR tables: attribute c takes c % 3 + 2 values, 5% of the labels flipped)
+
+| rows × attributes | 0.5.0's first port | 0.5.0 | ratio |
+|---|---|---|---|
+| 1,000 × 6 | 27.7 ms | 1.9 ms | ×15 |
+| 5,000 × 8 | 190.9 ms | 2.7 ms | ×70 |
+| 50,000 × 8 | 576.4 ms | 26.3 ms | ×22 |
+
+0.4.0's ID3 is no baseline: it drops every column left of the chosen one and throws once rows contradict each other or
+the columns run out, which noisy tables always reach. 0.5.0's first port fixed that and re-encoded every column with
+NumSharp at every node, a dozen NumSharp calls per attribute however few rows the node had. 0.5.0 encodes each column
+once (`np.unique` over a text array sized up front: NumSharp 0.80.0's `np.array(string[])` discovers the dtype value by
+value, 10 times the cost of the copy) and grows the tree over integer codes, reading a node's rows once per attribute.
+Both grow the same tree, gains bit for bit (also checked on 336 random tables of 1 to 1,500 rows). In a fresh process,
+one `Learn` of 5,000 rows takes 48 ms instead of 0.83 s, 50,000 rows 110 ms instead of 1.6 s, peaking at 53 MB and
+85 MB instead of 90 MB and 189 MB.

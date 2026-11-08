@@ -10,7 +10,7 @@ net10.0).
 | SVM (Support Vector Machines) | `SVM.Training`, `Prediction`, `Model`, `Problem` | libsvm 3.x's SMO solver; batch prediction of an `NDArray` as a NumSharp kernel matrix |
 | CRF (Conditional Random Field) | `CRFLite.CRFEncoder`, `CRFDecoder` | CRFSharp (L-BFGS training, Viterbi decoding) |
 | KNN | `KNN.KnnModel` | distance matrix by one matrix product, `np.argpartition`, one-hot votes |
-| Decision Tree | `DecisionTree.Tree` | ID3; columns as NumSharp text arrays counted by `np.unique` + `np.bincount` |
+| Decision Tree | `DecisionTree.Tree` | ID3; each column encoded once by `np.unique` over a NumSharp text array, the tree grown over the integer codes |
 | HMM (Hidden Markov Model) | `HiddenMarkovModel.*` | forward/backward/Viterbi; Baum-Welch on Rabiner's scaled forward-backward |
 | Bayes | `Bayes.GaussianNaiveBayes`, `BernoulliNaiveBayes`, `MultinomiaNaiveBayes` | per-class reductions and matrix products |
 | Linear Regression | `LinearRegression.LinearRegressionModel` | centered normal equations solved by `np.linalg.solve` (managed) |
@@ -83,12 +83,13 @@ dotnet test Bigtree.Algorithm.UnitTest
 ### Performance
 
 `benchmarks/` compares 0.5.0 with 0.4.0's own code, in one process: Multinomial Naive Bayes training ×37 to ×216,
-Baum-Welch ×20 to ×58 (and a 400 × 400 × 16-state run in 43 MB instead of 4.3 GB), SVM batch prediction ×1.5 to ×4.7.
-See [benchmarks/README.md](benchmarks/README.md).
+Baum-Welch ×20 to ×58 (and a 400 × 400 × 16-state run in 43 MB instead of 4.3 GB), SVM batch prediction ×1.6 to ×7.0;
+and ID3 ×15 to ×70 against 0.5.0's first port (0.4.0's ID3 cannot grow those trees). See
+[benchmarks/README.md](benchmarks/README.md).
 
 NumSharp spends a fixed 1.5-3 µs per call, so the estimators restructure their algorithms into whole-array
 operations instead of calling NumSharp per element or per sample. Where an algorithm is inherently sequential over
-small vectors (HMM recursions, the SMO solver, CRF decoding) it stays a scalar loop.
+small vectors (HMM recursions, the SMO solver, CRF decoding, growing a tree over coded columns) it stays a scalar loop.
 
 ### Memory
 
@@ -96,6 +97,12 @@ NumSharp arrays live in unmanaged memory. The estimators implement `IDisposable`
 a model (or let the finalizer do it) to return the buffers to NumSharp's pool, and never dispose an array a model
 exposes. Every array a method returns belongs to the caller. Inside the library, `[NDScoped]` methods (woven at build
 time by `NumSharp.Build`) return their temporaries to the pool on exit.
+
+A scope holds every temporary until its method returns, so a method that loops over classes or would build a
+(queries × training samples) matrix opens one scope per class or per block instead: KNN and SVM batch prediction run
+in blocks of 2^22 distances or kernel entries (32 MB) and write each block into the result, and Gaussian Naive Bayes
+frees each class's temporaries before the next. KNN on 8,000 queries × 8,000 training samples peaks at 170 MB instead
+of 3.0 GB (and runs twice as fast), Gaussian Naive Bayes on 100,000 × 50 with 10 classes at 319 MB instead of 1.4 GB.
 
 ### Changes from 0.4.0
 
@@ -110,4 +117,5 @@ time by `NumSharp.Build`) return their temporaries to the pool on exit.
   training does; `Model.Write` keeps full precision; no false "weight not found" warnings; NDArray entry points.
 - HMM: the scaled forward/backward pair works (`++N` loop, missing first scale); Baum-Welch's convergence value
   covers every sequence.
-- Decision tree: multi-class entropy; subtables keep the attributes left of the split.
+- Decision tree: multi-class entropy; subtables keep the attributes left of the split; contradictory rows end in a
+  majority leaf instead of an exception; a null cell raises `ArgumentException` naming its row and column.

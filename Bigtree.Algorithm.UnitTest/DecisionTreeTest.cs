@@ -150,5 +150,50 @@ namespace Bigtree.Algorithm.UnitTest
             Assert.IsTrue(leaf.IsLeaf);
             Assert.AreEqual("Yes", leaf.Name);
         }
+
+        /// <summary>
+        ///     The columns are NumSharp text arrays sized to their longest value in UTF-16 units: values of different
+        ///     lengths, non-ASCII text and a character outside the BMP (a surrogate pair, one NumPy code point) come back
+        ///     whole as edges and leaves.
+        /// </summary>
+        [TestMethod]
+        public void WideAndNonAsciiValuesKeepTheirText()
+        {
+            const string emoji = "\U0001F600";
+            var data = new TrainingData
+            {
+                Columns = new[] { "Weather", "Label" },
+                Rows = new[]
+                {
+                    new[] { "s", "ja" },
+                    new[] { "sehr bewölkt mit Schauern", "nein" + emoji },
+                    new[] { emoji, "ja" },
+                    new[] { "s", "ja" },
+                },
+            };
+
+            TreeNode root = Tree.Learn(data, "");
+
+            CollectionAssert.AreEqual(new[] { "s", "sehr bewölkt mit Schauern", emoji }, root.NodeAttribute.DifferentAttributeNames);
+            CollectionAssert.AreEqual(new[] { "ja", "nein" + emoji, "ja" }, root.ChildNodes.Select(child => child.Name).ToArray());
+        }
+
+        /// <summary>A null cell is refused up front, naming its row and column, rather than learned as the text "None".</summary>
+        [TestMethod]
+        public void NullCellIsRefused()
+        {
+            var data = new TrainingData
+            {
+                Columns = new[] { "A", "Label" },
+                Rows = new[]
+                {
+                    new[] { "x", "Yes" },
+                    new[] { null, "No" },
+                },
+            };
+
+            var error = Assert.ThrowsException<System.ArgumentException>(() => Tree.Learn(data, ""));
+            StringAssert.Contains(error.Message, "Row 1 has no value in column 'A'");
+        }
     }
 }

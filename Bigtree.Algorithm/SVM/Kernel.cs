@@ -208,7 +208,9 @@ namespace Bigtree.Algorithm.SVM
                 case KernelType.LINEAR:
                     return dot(x, y);
                 case KernelType.POLY:
-                    return powi(param.Degree * dot(x, y) + param.Coefficient0, param.Degree);
+                    // gamma * <x, y>, as in training (KernelFunction(int, int)) and libsvm. Bigtree 0.4.0 multiplied
+                    // by Degree here, so every polynomial-kernel PREDICTION used another kernel than the one trained.
+                    return powi(param.Gamma * dot(x, y) + param.Coefficient0, param.Degree);
                 case KernelType.RBF:
                     {
                         double sum = computeSquaredDistance(x, y);

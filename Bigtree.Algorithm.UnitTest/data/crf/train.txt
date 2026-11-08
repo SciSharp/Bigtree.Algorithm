@@ -1,0 +1,154 @@
+Tokyo	NNP	S_LOCATION
+and	CC	S
+New	NNP	B_LOCATION
+York	NNP	E_LOCATION
+are	VBP	S
+major	JJ	S
+financial	JJ	S
+centers	NNS	S
+.	PUN	S
+
+Paris	NNP	S_LOCATION
+is	VBZ	S
+the	DT	S
+capital	NN	S
+of	IN	S
+France	NNP	S_LOCATION
+.	PUN	S
+
+John	NNP	B_PERSON
+Smith	NNP	E_PERSON
+lives	VBZ	S
+in	IN	S
+London	NNP	S_LOCATION
+.	PUN	S
+
+Mary	NNP	S_PERSON
+visited	VBD	S
+San	NNP	B_LOCATION
+Francisco	NNP	E_LOCATION
+last	JJ	S
+year	NN	S
+.	PUN	S
+
+Berlin	NNP	S_LOCATION
+and	CC	S
+Madrid	NNP	S_LOCATION
+are	VBP	S
+large	JJ	S
+cities	NNS	S
+.	PUN	S
+
+Anna	NNP	B_PERSON
+Lee	NNP	E_PERSON
+works	VBZ	S
+in	IN	S
+Los	NNP	B_LOCATION
+Angeles	NNP	E_LOCATION
+.	PUN	S
+
+The	DT	S
+train	NN	S
+from	IN	S
+Rome	NNP	S_LOCATION
+arrived	VBD	S
+late	RB	S
+.	PUN	S
+
+Peter	NNP	S_PERSON
+moved	VBD	S
+to	TO	S
+New	NNP	B_LOCATION
+York	NNP	E_LOCATION
+.	PUN	S
+
+David	NNP	B_PERSON
+Brown	NNP	E_PERSON
+met	VBD	S
+Mary	NNP	S_PERSON
+in	IN	S
+Paris	NNP	S_LOCATION
+.	PUN	S
+
+Tokyo	NNP	S_LOCATION
+is	VBZ	S
+a	DT	S
+busy	JJ	S
+city	NN	S
+.	PUN	S
+
+She	PRP	S
+flew	VBD	S
+from	IN	S
+London	NNP	S_LOCATION
+to	TO	S
+Berlin	NNP	S_LOCATION
+.	PUN	S
+
+The	DT	S
+bank	NN	S
+opened	VBD	S
+an	DT	S
+office	NN	S
+in	IN	S
+San	NNP	B_LOCATION
+Francisco	NNP	E_LOCATION
+.	PUN	S
+
+John	NNP	S_PERSON
+and	CC	S
+Anna	NNP	S_PERSON
+are	VBP	S
+friends	NNS	S
+.	PUN	S
+
+Madrid	NNP	S_LOCATION
+hosted	VBD	S
+the	DT	S
+final	JJ	S
+.	PUN	S
+
+Los	NNP	B_LOCATION
+Angeles	NNP	E_LOCATION
+has	VBZ	S
+warm	JJ	S
+weather	NN	S
+.	PUN	S
+
+Peter	NNP	B_PERSON
+Smith	NNP	E_PERSON
+wrote	VBD	S
+a	DT	S
+book	NN	S
+.	PUN	S
+
+Rome	NNP	S_LOCATION
+and	CC	S
+Paris	NNP	S_LOCATION
+attract	VBP	S
+tourists	NNS	S
+.	PUN	S
+
+Mary	NNP	B_PERSON
+Brown	NNP	E_PERSON
+lives	VBZ	S
+in	IN	S
+Tokyo	NNP	S_LOCATION
+.	PUN	S
+
+They	PRP	S
+traveled	VBD	S
+to	TO	S
+Los	NNP	B_LOCATION
+Angeles	NNP	E_LOCATION
+and	CC	S
+San	NNP	B_LOCATION
+Francisco	NNP	E_LOCATION
+.	PUN	S
+
+David	NNP	S_PERSON
+studies	VBZ	S
+in	IN	S
+Berlin	NNP	S_LOCATION
+.	PUN	S
+

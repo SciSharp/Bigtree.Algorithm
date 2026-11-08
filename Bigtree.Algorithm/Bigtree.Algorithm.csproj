@@ -1,26 +1,36 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <!-- NumSharp 0.80.0 ships net8.0 and net10.0 only, so the library follows it. -->
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <Configurations>Debug;Release</Configurations>
     <Platforms>AnyCPU;x64</Platforms>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageIconUrl></PackageIconUrl>
-    <PackageProjectUrl>https://github.com/SciSharp</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/SciSharp/Bigtree.Algorithm</PackageProjectUrl>
     <RepositoryUrl>https://github.com/SciSharp/Bigtree.Algorithm</RepositoryUrl>
-    <Version>0.4.0</Version>
-    <PackageTags>MachineLearning,Algorithm,CRF,HMM,SVM,Bayes,DecisionTree</PackageTags>
+    <Version>0.5.0</Version>
+    <PackageTags>MachineLearning,Algorithm,CRF,HMM,SVM,Bayes,DecisionTree,KNN,NumSharp</PackageTags>
     <Authors>Haiping Chen, Peng Bo</Authors>
     <Copyright>Apache 2.0</Copyright>
-    <Description>Machine Learning library in .NET Core.</Description>
-    <PackageLicenseUrl>https://raw.githubusercontent.com/SciSharp/Bigtree.Algorithm/master/LICENSE</PackageLicenseUrl>
+    <Description>Machine Learning library in .NET, computed on NumSharp.</Description>
+    <!-- PackageLicenseUrl is deprecated by NuGet (NU5125); the SPDX expression says the same thing. -->
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <Company>Haiping Chen</Company>
-    <PackageReleaseNotes>Upgrade NumSharp to v0.30.</PackageReleaseNotes>
+    <PackageReleaseNotes>Upgrade to NumSharp 0.80.0 on net8.0 and net10.0. Naive Bayes, KNN, linear regression, the neural network, the ID3 decision tree and Baum-Welch run as whole-array NumSharp computations; Gaussian and Bernoulli Naive Bayes, KNN and linear regression are implemented; the SVM accepts 0- and 1-based feature indices and NDArray input.</PackageReleaseNotes>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <!-- The XML documentation ships with the package. The members written before 0.5.0 carry few doc
+         comments, so the missing-comment warning (CS1591) would bury every other warning. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="NumSharp" Version="0.30.0" />
+    <PackageReference Include="NumSharp" Version="0.80.0" />
+    <!-- Build-time only: weaves [NDScoped] members so their NDArray temporaries return to NumSharp's
+         buffer pool when the member exits, instead of waiting for the finalizer. Not a dependency of
+         the package (PrivateAssets), and nothing that references Bigtree.Algorithm is woven. -->
+    <PackageReference Include="NumSharp.Build" Version="0.80.0" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>

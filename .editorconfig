@@ -1,0 +1,11 @@
+root = true
+
+# The statistics library under HiddenMarkovModel/MathUtils came with its doc comments as they were (an unescaped
+# '<', <param> tags for parameters that no longer exist, comments above a namespace). Since 0.5.0 the package ships
+# its XML documentation, so the compiler checks every doc comment; these four diagnostics are silenced for that
+# folder only, so they still report anywhere else in the library.
+[Bigtree.Algorithm/HiddenMarkovModel/MathUtils/**.cs]
+dotnet_diagnostic.CS1570.severity = none
+dotnet_diagnostic.CS1572.severity = none
+dotnet_diagnostic.CS1573.severity = none
+dotnet_diagnostic.CS1587.severity = none

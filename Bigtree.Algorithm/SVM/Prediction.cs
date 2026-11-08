@@ -1,4 +1,4 @@
-/*
+﻿/*
  * SVM.NET Library
  * Copyright (C) 2008 Matthew Johnson
  * 
@@ -21,6 +21,8 @@ using System;
 using System.Linq;
 using System.IO;
 using System.Diagnostics;
+using Bigtree.Algorithm.Internal;
+using NumSharp;
 
 namespace Bigtree.Algorithm.SVM
 {
@@ -36,7 +38,10 @@ namespace Bigtree.Algorithm.SVM
         /// <param name="outputFile">File for result output</param>
         /// <param name="model">The Model to use</param>
         /// <param name="predict_probability">Whether to output a distribution over the classes</param>
-        /// <returns>Percentage 
+        /// <returns>
+        ///     For classification, the fraction of samples whose predicted label equals the problem's label; for
+        ///     regression (EPSILON_SVR, NU_SVR), the mean squared error.
+        /// </returns>
         public static double Predict(
             Problem problem,
             string outputFile,
@@ -139,6 +144,192 @@ namespace Bigtree.Algorithm.SVM
         public static double[][] PredictLabelsProbability(this Model model, Problem problem)
         {
             return problem.X.Select(o => model.PredictProbability(o)).ToArray();
+        }
+
+        /// <summary>
+        ///     libsvm's decision values (<c>svm_predict_values</c>) for every row of a dense sample matrix, computed for
+        ///     the whole batch at once on NumSharp.
+        /// </summary>
+        /// <param name="model">A model trained on 1-based features (<see cref="Problem.FromNDArray"/>, or libsvm files).</param>
+        /// <param name="X">
+        ///     The samples, shape (samples, features); column <c>j</c> is feature <c>j + 1</c>, and features the model
+        ///     knows beyond the last column count as 0.
+        /// </param>
+        /// <returns>
+        ///     Classification: float64 (samples, k(k-1)/2), one column per class pair (i, j) with i &lt; j in
+        ///     <see cref="Model.ClassLabels"/> order, positive meaning a vote for class i (libsvm's sign, which for two
+        ///     classes is the opposite of scikit-learn's <c>decision_function</c>). Regression and one-class: float64
+        ///     (samples,), the regression value or the signed distance. The caller owns it.
+        /// </returns>
+        /// <remarks>
+        ///     <para>The kernel between every sample and every support vector is one matrix: <c>X @ SV.T</c>
+        ///     (then <c>(gamma * dot + coef0)^degree</c>, <c>tanh(gamma * dot + coef0)</c>, or
+        ///     <c>exp(-gamma * (|x|^2 + |sv|^2 - 2 dot))</c>), and each class pair's values are two matrix-vector
+        ///     products over its support vectors. The values agree with the per-row <see cref="Predict(Model, Node[])"/>
+        ///     path to rounding (about 1e-15 relative): the sums run in another order.</para>
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="model"/> or <paramref name="X"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException"><paramref name="X"/> is not a finite 2-D array.</exception>
+        /// <exception cref="NotSupportedException">The model uses a precomputed kernel, which has no feature matrix to compute from.</exception>
+        /// <exception cref="InvalidOperationException">A support vector has feature index 0, i.e. the model was trained on 0-based features; use the <see cref="Node"/> API for it.</exception>
+        public static NDArray DecisionValues(this Model model, NDArray X)
+        {
+            if (model is null)
+                throw new ArgumentNullException(nameof(model));
+            using var scope = NDScope.Open();
+            NDArray kernel = KernelMatrix(model, NDHelpers.Float64Matrix(X, nameof(X)));
+            SvmType type = model.Parameter.SvmType;
+            if (type == SvmType.ONE_CLASS || type == SvmType.EPSILON_SVR || type == SvmType.NU_SVR)
+                return scope.Returns(np.dot(kernel, np.array(model.SupportVectorCoefficients[0])) - model.Rho[0]);
+
+            // Support vectors are stored grouped by class: class c owns rows start[c] .. start[c] + count[c].
+            int classes = model.NumberOfClasses;
+            var start = new int[classes];
+            for (int c = 1; c < classes; c++)
+                start[c] = start[c - 1] + model.NumberOfSVPerClass[c - 1];
+
+            var pairs = new NDArray[classes * (classes - 1) / 2];
+            int p = 0;
+            for (int i = 0; i < classes; i++)
+                for (int j = i + 1; j < classes; j++)
+                {
+                    int si = start[i], sj = start[j], ci = model.NumberOfSVPerClass[i], cj = model.NumberOfSVPerClass[j];
+                    // The same coefficient rows as svm_predict_values: class i's support vectors are weighted by
+                    // row j - 1, class j's by row i.
+                    NDArray fromI = np.dot(kernel[$":, {si}:{si + ci}"], np.array(model.SupportVectorCoefficients[j - 1][si..(si + ci)]));
+                    NDArray fromJ = np.dot(kernel[$":, {sj}:{sj + cj}"], np.array(model.SupportVectorCoefficients[i][sj..(sj + cj)]));
+                    pairs[p] = fromI + fromJ - model.Rho[p];
+                    p++;
+                }
+
+            return scope.Returns(np.stack(pairs, axis: 1));
+        }
+
+        /// <summary>
+        ///     Predicts every row of a dense sample matrix: the voted class label for classification, the value for
+        ///     regression, +1 / -1 for one-class. The batch counterpart of <see cref="Predict(Model, Node[])"/>.
+        /// </summary>
+        /// <param name="model">A model trained on 1-based features (<see cref="Problem.FromNDArray"/>, or libsvm files).</param>
+        /// <param name="X">The samples, shape (samples, features); column <c>j</c> is feature <c>j + 1</c>.</param>
+        /// <returns>A float64 vector, one prediction per sample; the caller owns it.</returns>
+        /// <remarks>
+        ///     Classification votes once per class pair from <see cref="DecisionValues(Model, NDArray)"/> and takes the
+        ///     class with the most votes; a tie goes to the class first in <see cref="Model.ClassLabels"/>, as in libsvm.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="model"/> or <paramref name="X"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException"><paramref name="X"/> is not a finite 2-D array.</exception>
+        /// <exception cref="NotSupportedException">The model uses a precomputed kernel.</exception>
+        /// <exception cref="InvalidOperationException">The model was trained on 0-based features.</exception>
+        public static NDArray PredictLabels(this Model model, NDArray X)
+        {
+            using var scope = NDScope.Open();
+            NDArray decision = DecisionValues(model, X);
+            SvmType type = model.Parameter.SvmType;
+            if (type == SvmType.EPSILON_SVR || type == SvmType.NU_SVR)
+                return scope.Returns(decision);
+            if (type == SvmType.ONE_CLASS)
+                return scope.Returns(np.where(decision > 0, 1.0, -1.0));
+
+            int classes = model.NumberOfClasses;
+            NDArray votes = np.zeros(new Shape(decision.shape[0], classes));
+            int p = 0;
+            for (int i = 0; i < classes; i++)
+                for (int j = i + 1; j < classes; j++)
+                {
+                    // dec > 0 votes for i, anything else (0 included) for j: svm_predict_values' rule.
+                    NDArray forI = (decision[$":, {p}"] > 0).astype(np.float64);
+                    votes[$":, {i}"] = votes[$":, {i}"] + forI;
+                    votes[$":, {j}"] = votes[$":, {j}"] + (1.0 - forI);
+                    p++;
+                }
+
+            // np.argmax takes the first maximum: the vote tie rule of libsvm.
+            NDArray labels = np.array(model.ClassLabels.Select(label => (double)label).ToArray());
+            return scope.Returns(labels[np.argmax(votes, axis: 1)]);
+        }
+
+        /// <summary>
+        ///     The class probability estimates of every row of a dense sample matrix (a model trained with
+        ///     <see cref="Parameter.Probability"/>). The batch counterpart of <see cref="PredictProbability(Model, Node[])"/>.
+        /// </summary>
+        /// <param name="model">A probability-trained C_SVC or NU_SVC model on 1-based features.</param>
+        /// <param name="X">The samples, shape (samples, features); column <c>j</c> is feature <c>j + 1</c>.</param>
+        /// <returns>A float64 (samples, classes) array, columns in <see cref="Model.ClassLabels"/> order; the caller owns it.</returns>
+        /// <remarks>
+        ///     libsvm's pairwise coupling iterates per sample, so this converts each row to <see cref="Node"/>s and runs
+        ///     the scalar path; only the input and the result are NumSharp arrays.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="model"/> or <paramref name="X"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException"><paramref name="X"/> is not a finite 2-D array.</exception>
+        /// <exception cref="Exception">The model is not a classification model (the message names its type).</exception>
+        public static NDArray PredictLabelsProbability(this Model model, NDArray X)
+        {
+            if (model is null)
+                throw new ArgumentNullException(nameof(model));
+            using var scope = NDScope.Open();
+            Problem rows = Problem.FromNDArray(X, np.zeros(new Shape(X?.shape[0] ?? 0)));
+            double[][] probabilities = PredictLabelsProbability(model, rows);
+            int classes = model.NumberOfClasses;
+            var flat = new double[(long)rows.Count * classes];
+            for (int i = 0; i < rows.Count; i++)
+                Array.Copy(probabilities[i], 0, flat, (long)i * classes, classes);
+            return scope.Returns(np.array(flat).reshape(rows.Count, classes));
+        }
+
+        /// <summary>
+        ///     The kernel value of every sample against every support vector, as one NumSharp matrix.
+        /// </summary>
+        /// <param name="model">The trained model.</param>
+        /// <param name="samples">Validated float64 samples, column <c>j</c> = feature <c>j + 1</c>.</param>
+        /// <returns>A float64 (samples, support vectors) array.</returns>
+        /// <exception cref="NotSupportedException">The model uses a precomputed kernel.</exception>
+        /// <exception cref="InvalidOperationException">A support vector has feature index 0.</exception>
+        [NDScopedCovered]
+        private static NDArray KernelMatrix(Model model, NDArray samples)
+        {
+            Parameter parameter = model.Parameter;
+            if (parameter.KernelType == KernelType.PRECOMPUTED)
+                throw new NotSupportedException("A precomputed-kernel model has no feature matrix to compute kernels from; use the Node[] API.");
+
+            // Densify the support vectors: row k, column index - 1. Features beyond X's columns widen both matrices
+            // (X with zero columns), so the RBF norms still count them.
+            int vectors = model.SupportVectorCount;
+            int width = (int)samples.shape[1];
+            for (int k = 0; k < vectors; k++)
+                foreach (Node node in model.SupportVectors[k])
+                {
+                    if (node.Index < 1)
+                        throw new InvalidOperationException("The model has feature index 0 (it was trained on 0-based features): predict with the Node[] API.");
+                    width = Math.Max(width, node.Index);
+                }
+
+            var dense = new double[(long)vectors * width];
+            for (int k = 0; k < vectors; k++)
+                foreach (Node node in model.SupportVectors[k])
+                    dense[(long)k * width + node.Index - 1] = node.Value;
+            NDArray supportVectors = np.array(dense).reshape(vectors, width);
+            if (width > samples.shape[1])
+                samples = np.concatenate(new[] { samples, np.zeros(new Shape(samples.shape[0], width - samples.shape[1])) }, axis: 1);
+
+            NDArray dot = np.dot(samples, supportVectors.T);
+            switch (parameter.KernelType)
+            {
+                case KernelType.LINEAR:
+                    return dot;
+                case KernelType.POLY:
+                    return np.power(parameter.Gamma * dot + parameter.Coefficient0, (double)parameter.Degree);
+                case KernelType.RBF:
+                    {
+                        NDArray squared = np.sum(np.square(samples), axis: 1, keepdims: true) - 2.0 * dot
+                                          + np.sum(np.square(supportVectors), axis: 1);
+                        // The expansion can dip a hair below 0 where a sample equals a support vector.
+                        return np.exp(-parameter.Gamma * np.maximum(squared, 0.0));
+                    }
+                case KernelType.SIGMOID:
+                    return np.tanh(parameter.Gamma * dot + parameter.Coefficient0);
+                default:
+                    throw new NotSupportedException($"Kernel {parameter.KernelType} is not supported.");
+            }
         }
 
         /// <summary>

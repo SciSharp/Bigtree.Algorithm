@@ -1,28 +1,20 @@
-﻿using Microsoft.Extensions.Configuration;
-using System;
+﻿using System;
 using System.IO;
-using System.Linq;
 
 namespace Bigtree.Algorithm.UnitTest
 {
+    /// <summary>
+    ///     Base class of the tests that read files: it locates the <c>data</c> folder the build copies next to the
+    ///     test assembly.
+    /// </summary>
+    /// <remarks>
+    ///     Bigtree 0.4.0 read the folder from a <c>Settings/*.json</c> file under the repository root that was never
+    ///     committed, so every test deriving from this class failed before it ran. The data now ships with the test
+    ///     project (<c>Bigtree.Algorithm.UnitTest/data</c>, plus the root <c>data/seeds_dataset.csv</c>).
+    /// </remarks>
     public abstract class TestEssential
     {
-        protected IConfigurationSection Configuration { get; }
-
-        public TestEssential()
-        {
-            var rootDir = Path.GetFullPath($"{Directory.GetCurrentDirectory()}{Path.DirectorySeparatorChar}..{Path.DirectorySeparatorChar}..{Path.DirectorySeparatorChar}..{Path.DirectorySeparatorChar}..{Path.DirectorySeparatorChar}");
-            var settingsDir = Path.Combine(rootDir, "Settings");
-
-            ConfigurationBuilder configurationBuilder = new ConfigurationBuilder();
-            var settings = Directory.GetFiles(settingsDir, "*.json");
-            settings.ToList().ForEach(setting =>
-            {
-                configurationBuilder.AddJsonFile(setting, optional: false, reloadOnChange: true);
-            });
-            Configuration = configurationBuilder.Build().GetSection("Bigtree.Algorithm");
-        }
+        /// <summary>The <c>data</c> folder beside the test assembly.</summary>
+        protected static string DataDir { get; } = Path.Combine(AppContext.BaseDirectory, "data");
     }
-
-
 }

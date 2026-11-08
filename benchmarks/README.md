@@ -68,6 +68,11 @@ pair's decision values with one more product, and the votes with a third; the la
 in blocks of 2^22 kernel entries (32 MB), each block's temporaries returned before the next: 20,000 rows × 1,960
 support vectors peaked at 186 MB, against 696 MB with the whole kernel matrix at once, in the same time.
 
+What is left is the RBF kernel's `exp`. A block of 2,140 rows × 1,960 support vectors spends 13 ms on the cross
+product, 49 ms on the fused kernel pass (34 ms of it `exp`) and 19 ms on the decision values. Without AVX-512 (this
+machine: AVX2) both NumSharp and NumPy compute a float64 `exp` one element at a time: 6.6 ns per element in NumSharp
+0.80.0, 7.5 ns in NumPy 2.4.2 (float32: 1.1 and 1.9 ns, vectorized in both).
+
 ## ID3 decision tree (noisy XOR tables: attribute c takes c % 3 + 2 values, 5% of the labels flipped)
 
 | rows × attributes | 0.5.0's first port | 0.5.0 | ratio |

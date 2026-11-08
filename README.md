@@ -12,7 +12,7 @@ net10.0).
 | KNN | `KNN.KnnModel` | distance matrix by one matrix product, `np.argpartition`, one-hot votes |
 | Decision Tree | `DecisionTree.Tree` | ID3; each column encoded once by `np.unique` over a NumSharp text array, the tree grown over the integer codes |
 | HMM (Hidden Markov Model) | `HiddenMarkovModel.*` | forward/backward/Viterbi; Baum-Welch on Rabiner's scaled forward-backward |
-| Bayes | `Bayes.GaussianNaiveBayes`, `BernoulliNaiveBayes`, `MultinomiaNaiveBayes` | per-class reductions and matrix products |
+| Bayes | `Bayes.GaussianNaiveBayes`, `BernoulliNaiveBayes`, `MultinomiaNaiveBayes` | per-class reductions and matrix products; the multinomial one counts each feature value in one SIMD pass over its samples' vectors |
 | Linear Regression | `LinearRegression.LinearRegressionModel` | centered normal equations solved by `np.linalg.solve` (managed) |
 | Artificial Neural Network | `NeuralNetwork.NetworkModel` | one weight matrix per layer, mini-batch backpropagation as matrix products |
 
@@ -82,7 +82,7 @@ dotnet test Bigtree.Algorithm.UnitTest
 
 ### Performance
 
-`benchmarks/` compares 0.5.0 with 0.4.0's own code, in one process: Multinomial Naive Bayes training ×37 to ×216,
+`benchmarks/` compares 0.5.0 with 0.4.0's own code, in one process: Multinomial Naive Bayes training ×47 to ×1,147,
 Baum-Welch ×20 to ×58 (and a 400 × 400 × 16-state run in 43 MB instead of 4.3 GB), SVM batch prediction ×1.6 to ×7.0;
 and ID3 ×15 to ×70 against 0.5.0's first port (0.4.0's ID3 cannot grow those trees). See
 [benchmarks/README.md](benchmarks/README.md).

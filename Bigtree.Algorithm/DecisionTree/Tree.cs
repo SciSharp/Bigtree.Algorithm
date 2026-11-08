@@ -164,11 +164,9 @@ namespace Bigtree.Algorithm.DecisionTree
             /// <param name="data">The table.</param>
             /// <returns>The coded table.</returns>
             /// <remarks>
-            ///     Each column becomes a <c>'&lt;U{width}'</c> array whose width (the longest value, at least 1) is
-            ///     measured here and passed as the dtype. <c>np.array(string[])</c> alone runs NumPy's dtype discovery on
-            ///     every value (a descriptor per value, promoted into the running one), about 65-80 ns per value against
-            ///     7-18 ns for the sized request: 10 times the cost of the copy for the same array. The width counts UTF-16
-            ///     units, never fewer than the code points NumPy counts, so no value is cut.
+            ///     Each column becomes a text array sized up front (<see cref="Internal.NDHelpers.Text"/>):
+            ///     <c>np.array(string[])</c> alone runs NumPy's dtype discovery on every value, 10 times the cost of the
+            ///     copy for the same array.
             /// </remarks>
             /// <exception cref="ArgumentException">A cell is null: NumPy would need an object array for it (NumSharp's
             ///     discovery refuses it), and a sized request would store the text "None" in its place.</exception>
@@ -180,15 +178,11 @@ namespace Bigtree.Algorithm.DecisionTree
                 var column = new string[data.Rows.Length];
                 for (int c = 0; c < columns; c++)
                 {
-                    int width = 1;
+                    // Checked here rather than in NDHelpers.Text so the message names the row and the column.
                     for (int i = 0; i < column.Length; i++)
-                    {
-                        string value = data.Rows[i][c] ?? throw new ArgumentException($"Row {i} has no value in column '{data.Columns[c]}'.", nameof(data));
-                        column[i] = value;
-                        width = Math.Max(width, value.Length);
-                    }
+                        column[i] = data.Rows[i][c] ?? throw new ArgumentException($"Row {i} has no value in column '{data.Columns[c]}'.", nameof(data));
 
-                    var unique = np.unique(np.array(column, np.dtype($"<U{width}")), return_inverse: true);
+                    var unique = np.unique(Internal.NDHelpers.Text(column), return_inverse: true);
                     table.Values[c] = Internal.NDHelpers.Strings(unique.values);
                     table.Codes[c] = unique.inverse_indices.astype(np.int32).ToArray<int>();
                 }

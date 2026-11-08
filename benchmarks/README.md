@@ -16,19 +16,24 @@ rounds after a warm-up that lets the tier-1 JIT compile; the Baum-Welch, SVM and
 two contenders round by round, so background load slows both alike. Release builds only: a Debug build distorts both
 sides.
 
-Results on 2026-11-08, the SVM and decision-tree tables on 2026-11-09 (Windows 11, .NET 10, NumSharp 0.80.0, managed
-kernels; the machine was ~25% busy with other work, which the best-of-N method filters out):
+Results on 2026-11-08, the Naive Bayes, SVM and decision-tree tables on 2026-11-09 (Windows 11, .NET 10, NumSharp
+0.80.0, managed kernels; the machine was ~25% busy with other work, which the best-of-N method filters out):
 
 ## Multinomial Naive Bayes training (CherubNLP's pass: every label × feature × value through `CalCondProb`)
 
 | sentences × features × labels | 0.4.0 | 0.5.0 | ratio |
 |---|---|---|---|
-| 300 × 100 × 4 | 64.0 ms | 1.73 ms | ×37 |
-| 1,000 × 300 × 5 | 1,997 ms | 9.23 ms | ×216 |
-| 2,000 × 500 × 6 | 4,591 ms | 23.6 ms | ×194 |
+| 300 × 100 × 4 | 33.1 ms | 0.47 ms | ×71 |
+| 1,000 × 300 × 5 | 1,415 ms | 2.37 ms | ×598 |
+| 2,000 × 500 × 6 | 4,184 ms | 4.79 ms | ×874 |
 
-0.4.0 rebuilt the label's sample matrix on every call (O(labels · rows · features²) per pass); 0.5.0 counts each feature
-value once with one matrix product. The log-probabilities are bit-identical.
+(2026-11-09; the load on the machine moved 0.4.0's times by up to 1.5× between runs: ratios ×47 to ×71, ×574 to ×598,
+×874 to ×1,147 over two runs.) 0.4.0 rebuilt the label's sample matrix on every call (O(labels · rows · features²) per
+pass); 0.5.0 counts each requested value once, in one SIMD pass over the samples' own vectors into a (labels × features)
+table, and NumSharp turns the table into log-probabilities. The log-probabilities are bit-identical. Memory follows: a
+training pass over 20,000 samples × 2,000 features peaked at 1,358 MB with 0.5.0's first, matrix-product count (four
+copies of the samples per value) and at 376 MB now, 320 MB of which are the samples' own vectors (0.95-1.95 s →
+0.12-0.15 s).
 
 ## Baum-Welch (10 iterations)
 

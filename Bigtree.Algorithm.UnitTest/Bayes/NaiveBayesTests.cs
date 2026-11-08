@@ -77,6 +77,30 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
                         Assert.AreEqual(Bits(legacy.CalCondProb(x, label, value)), Bits(current.CalCondProb(x, label, value)));
         }
 
+        /// <summary>
+        ///     The count's equality is 0.4.0's IEEE one, in the SIMD body and the scalar tail alike (37 features: whole
+        ///     vectors, then a remainder at any vector width): -0 counts as 0, NaN matches nothing, a NaN request
+        ///     counts 0.
+        /// </summary>
+        [TestMethod]
+        public void Multinomial_SignedZeroAndNaNCountLike040()
+        {
+            double[] palette = { 0.0, -0.0, 1.0, double.NaN, 2.5 };
+            var random = new Random(37);
+            var featureSet = Enumerable.Range(0, 50)
+                .Select(i => new Tuple<string, double[]>("c" + random.Next(3),
+                    Enumerable.Range(0, 37).Select(f => palette[random.Next(palette.Length)]).ToArray()))
+                .ToList();
+            var current = new MultinomiaNaiveBayes(alpha: 0.5) { FeatureSet = featureSet };
+            var legacy = new LegacyMultinomiaNaiveBayes(alpha: 0.5) { FeatureSet = featureSet };
+
+            foreach (string label in featureSet.Select(sample => sample.Item1).Distinct())
+                for (int x = 0; x < 37; x++)
+                    foreach (double value in palette)
+                        Assert.AreEqual(Bits(legacy.CalCondProb(x, label, value)), Bits(current.CalCondProb(x, label, value)),
+                            $"{label} f{x} = {value:R}");
+        }
+
         /// <summary>A new FeatureSet list (or one whose Count changed) is counted again.</summary>
         [TestMethod]
         public void Multinomial_RecountsANewFeatureSet()

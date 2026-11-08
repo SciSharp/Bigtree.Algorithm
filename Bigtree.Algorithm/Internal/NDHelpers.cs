@@ -111,6 +111,33 @@ namespace Bigtree.Algorithm.Internal
         }
 
         /// <summary>
+        ///     Builds a 1-D <c>&lt;U{width}</c> text array from strings, the width (the longest value in UTF-16 units, at
+        ///     least 1) measured here and passed as the dtype. Use it instead of <c>np.array(string[])</c> for any
+        ///     column of more than a handful of values.
+        /// </summary>
+        /// <param name="values">The strings, in order.</param>
+        /// <returns>A new text array, one element per string, that the caller's scope reclaims.</returns>
+        /// <remarks>
+        ///     NumSharp 0.80.0's <c>np.array(string[])</c> runs NumPy's dtype discovery on every value (a descriptor per
+        ///     value, promoted into the running one): 65-160 ns per string, against 7-18 ns for a sized request, 10 times
+        ///     the cost of the copy itself. A UTF-16 width is never smaller than the code points NumPy counts, so no value
+        ///     is cut; a surrogate pair only widens the dtype by one.
+        /// </remarks>
+        /// <exception cref="ArgumentException">
+        ///     A value is null: the sized request would store it as the text "None" (and the discovering
+        ///     <c>np.array(string[])</c> refuses it with a NotSupportedException about object arrays). Callers that can
+        ///     name the row check first, with their own message.
+        /// </exception>
+        [NDScopedCovered]
+        internal static NDArray Text(string[] values)
+        {
+            int width = 1;
+            for (int i = 0; i < values.Length; i++)
+                width = Math.Max(width, (values[i] ?? throw new ArgumentException($"Element {i} is null.", nameof(values))).Length);
+            return np.array(values, np.dtype($"<U{width}"));
+        }
+
+        /// <summary>
         ///     Builds the indicator matrix of encoded labels: row <c>i</c> holds 1.0 in column <c>codes[i]</c> and 0.0
         ///     elsewhere.
         /// </summary>

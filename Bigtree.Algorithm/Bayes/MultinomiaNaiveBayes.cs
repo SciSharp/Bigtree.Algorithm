@@ -21,6 +21,7 @@ using NumSharp;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 
 namespace Bigtree.Algorithm.Bayes
 {
@@ -31,13 +32,14 @@ namespace Bigtree.Algorithm.Bayes
     /// </summary>
     /// <remarks>
     ///     <para><b>How it computes.</b> The conditional probabilities come from one count table per feature value:
-    ///     <c>counts[label, x] = onehot(labels).T @ (X == value)</c>, a single NumSharp matrix product over the whole
-    ///     <see cref="FeatureSet"/>, built the first time <see cref="CalCondProb"/> asks for that value and reused for
-    ///     every later call. Bigtree 0.4.0 filtered the feature set and copied the label's rows into a fresh matrix on
-    ///     every call, which made a full training pass (every label × feature × value) cost O(labels · rows · features²);
-    ///     it now costs O(labels · rows · features) once, and each call is a table lookup. The numbers are the same to
-    ///     the last bit: the counts are exact integers in float64 and the smoothing formula is evaluated in the same
-    ///     order.</para>
+    ///     <c>counts[label, x]</c> = the samples of that label whose feature <c>x</c> equals the value, counted in one
+    ///     SIMD pass over the vectors of <see cref="FeatureSet"/> (no copy of them), built the first time
+    ///     <see cref="CalCondProb"/> asks for that value and reused for every later call; NumSharp turns the table
+    ///     into smoothed log-probabilities. Bigtree 0.4.0 filtered the feature set and copied the label's rows into a
+    ///     fresh matrix on every call, which made a full training pass (every label × feature × value) cost
+    ///     O(labels · rows · features²); it now reads each value's samples once, and each call is a table lookup. The
+    ///     numbers are the same to the last bit: the counts are exact integers in float64 and the smoothing formula is
+    ///     evaluated in the same order.</para>
     ///     <para><b>Footgun: the tables follow the list, not its contents.</b> They are rebuilt when
     ///     <see cref="FeatureSet"/> is assigned another list or its <c>Count</c> changes. Editing a row's vector (or
     ///     swapping one row for another) in place after the first <see cref="CalCondProb"/> call is not seen: assign
@@ -132,12 +134,15 @@ namespace Bigtree.Algorithm.Bayes
         /// <returns>The log-probability (bit-identical to Bigtree 0.4.0's, which rebuilt the label's matrix per call).</returns>
         /// <remarks>
         ///     The first call for a given <paramref name="feature"/> value counts the whole <see cref="FeatureSet"/>
-        ///     with one matrix product (see the class remarks); later calls for that value are a table lookup.
+        ///     in one pass (see the class remarks); later calls for that value are a table lookup.
         /// </remarks>
         /// <exception cref="ArgumentOutOfRangeException">
         ///     <paramref name="Y"/> labels no sample, or <paramref name="x"/> is not a feature index.
         /// </exception>
-        /// <exception cref="ArgumentException">The vectors of <see cref="FeatureSet"/> differ in length.</exception>
+        /// <exception cref="ArgumentException">
+        ///     <see cref="FeatureSet"/> is empty, its vectors differ in length, or a sample's label is null.
+        /// </exception>
+        /// <exception cref="OverflowException">labels × features exceeds the largest .NET array.</exception>
         public double CalCondProb(int x, string Y, double feature)
         {
             double[] table;
@@ -196,7 +201,7 @@ namespace Bigtree.Algorithm.Bayes
         ///     (Re)counts the labels of <see cref="FeatureSet"/> when it is another list than the one counted, or its
         ///     row count changed, and drops the value tables of the previous set. Runs under <see cref="_sync"/>.
         /// </summary>
-        /// <exception cref="ArgumentException">The set is empty, or its vectors differ in length.</exception>
+        /// <exception cref="ArgumentException">The set is empty, its vectors differ in length, or a sample's label is null.</exception>
         [NDScoped]
         private void CountLabels()
         {
@@ -209,8 +214,12 @@ namespace Bigtree.Algorithm.Bayes
             if (FeatureSet.Any(sample => sample.Item2.Length != features))
                 throw new ArgumentException($"Every feature vector must have {features} features, as the first one has.", nameof(FeatureSet));
 
-            // np.unique sorts the text labels and numbers each sample's label by its rank: the table rows.
-            var labels = np.unique(np.array(FeatureSet.Select(sample => sample.Item1).ToArray()), return_inverse: true, return_counts: true);
+            var sampleLabels = new string[FeatureSet.Count];
+            for (int i = 0; i < sampleLabels.Length; i++)
+                sampleLabels[i] = FeatureSet[i].Item1 ?? throw new ArgumentException($"FeatureSet[{i}] has no label.", nameof(FeatureSet));
+            // np.unique sorts the text labels and numbers each sample's label by its rank: the table rows. The text array
+            // is sized up front (NDHelpers.Text): np.array(string[]) would discover its dtype one label at a time.
+            var labels = np.unique(Internal.NDHelpers.Text(sampleLabels), return_inverse: true, return_counts: true);
             string[] names = Internal.NDHelpers.Strings(labels.values);
             _labelRow = new Dictionary<string, int>(names.Length);
             for (int i = 0; i < names.Length; i++)
@@ -228,26 +237,47 @@ namespace Bigtree.Algorithm.Bayes
         ///     and turns the counts into smoothed log-probabilities. Runs under <see cref="_sync"/>, after
         ///     <see cref="CountLabels"/>.
         /// </summary>
-        /// <param name="feature">The feature value to count.</param>
+        /// <param name="feature">The feature value to count (IEEE equality: -0 counts as 0, NaN matches nothing).</param>
         /// <returns>The (labels, features) log-probabilities, row-major.</returns>
+        /// <exception cref="OverflowException">labels × features exceeds the largest .NET array.</exception>
+        /// <remarks>
+        ///     The count reads every sample's own vector once, comparing a SIMD vector of features at a time and adding
+        ///     the matches into the label's row of one (labels × features) table. An earlier NumSharp formulation
+        ///     (<c>onehot(labels).T @ (X == value)</c>) had to copy the jagged <see cref="FeatureSet"/> into a flat
+        ///     array, then into an NDArray, then a mask and its float64 copy: four (samples × features) temporaries per
+        ///     value, 1.36 GB at 20,000 × 2,000 to produce a 5 × 2,000 table. NumSharp keeps the smoothing and the
+        ///     logarithm, on the small table only, so the bits are what they were.
+        /// </remarks>
         private double[] CountValue(double feature)
         {
             // Scoped by hand: every array below is a temporary, and the weaver refuses [NDScoped] on a method that
             // returns a managed array (NDW003), even one of doubles that cannot hold an NDArray.
             using var scope = NDScope.Open();
-            int samples = _countedSet.Count, labels = _labelRows.Length;
-            var flat = new double[(long)samples * _features];
+            int samples = _countedSet.Count, labels = _labelRows.Length, features = _features;
+            var hits = new long[checked(labels * features)];
+            var target = new Vector<double>(feature);
+            int width = Vector<double>.Count;
             for (int i = 0; i < samples; i++)
-                Array.Copy(_countedSet[i].Item2, 0, flat, (long)i * _features, _features);
+            {
+                double[] vector = _countedSet[i].Item2;
+                Span<long> row = hits.AsSpan((int)_codes[i] * features, features);
+                int x = 0;
+                // Vector.Equals sets a matching lane to all ones, -1 as a long: subtracting the mask adds 1 per match.
+                for (; x <= features - width; x += width)
+                {
+                    Span<long> lanes = row.Slice(x, width);
+                    (new Vector<long>(lanes) - Vector.Equals(new Vector<double>(vector, x), target)).CopyTo(lanes);
+                }
+                for (; x < features; x++)
+                    if (vector[x] == feature)
+                        row[x]++;
+            }
 
-            NDArray X = np.array(flat).reshape(samples, _features);
-            NDArray memberOf = (np.arange(labels).reshape(labels, 1) == np.array(_codes).reshape(1, samples)).astype(np.float64);
-            // (labels, samples) @ (samples, features): row y, column x = how many samples labelled y have X[:, x] == feature.
-            // Integer counts below 2^53 are exact in float64, whatever order the product sums them in.
-            NDArray hits = np.dot(memberOf, (X == feature).astype(np.float64));
+            // Integer counts below 2^53 are exact in float64.
+            NDArray counts = np.array(hits).astype(np.float64).reshape(labels, features);
             NDArray n = np.array(_labelRows).reshape(labels, 1);
             // The same operations, in the same order, as 0.4.0's Math.Log((Nykx + alpha) / (Nyk + n * alpha)).
-            NDArray logCond = np.log((hits + alpha) / (n + n * alpha));
+            NDArray logCond = np.log((counts + alpha) / (n + n * alpha));
             return logCond.ToArray<double>();
         }
     }

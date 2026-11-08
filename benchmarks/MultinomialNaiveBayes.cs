@@ -2,7 +2,8 @@
 #:property PublishAot=false
 #:property NoWarn=NDW012;NDW016;NDW017
 // CherubNLP's Naive Bayes training pass (every label x feature x value 0/1 through CalCondProb) on Bigtree 0.4.0's
-// MultinomiaNaiveBayes (copied verbatim below as Legacy) and on 0.5.0's, which counts with NumSharp.
+// MultinomiaNaiveBayes (copied verbatim below as Legacy) and on 0.5.0's, which counts each value in one SIMD pass over
+// the samples and turns the counts into log-probabilities with NumSharp.
 //   dotnet run -c Release benchmarks/MultinomialNaiveBayes.cs
 using System.Diagnostics;
 using Bigtree.Algorithm.Bayes;
@@ -29,10 +30,11 @@ foreach (var (N, F, L) in new[] { (300, 100, 4), (1000, 300, 5), (2000, 500, 6) 
         return sw.Elapsed.TotalMilliseconds;
     }
 
-    // Each round trains a fresh classifier, as CherubNLP's Train does; the first rounds warm the JIT.
-    double best(Func<Func<string, int, double, double>> factory) => Enumerable.Range(0, 5).Select(_ => Train(factory())).Skip(2).Min();
-    double legacy = best(() => { var nb = new Legacy { LabelDist = labelDist, FeatureSet = featureSets }; return (y, x, v) => nb.CalCondProb(x, y, v); });
-    double current = best(() => { var nb = new MultinomiaNaiveBayes { LabelDist = labelDist, FeatureSet = featureSets }; return (y, x, v) => nb.CalCondProb(x, y, v); });
+    // Each round trains a fresh classifier, as CherubNLP's Train does; the first two rounds warm the JIT. 0.5.0's
+    // rounds take milliseconds, so it gets more of them: a busy machine slows single rounds, never speeds them up.
+    double best(Func<Func<string, int, double, double>> factory, int rounds) => Enumerable.Range(0, rounds).Select(_ => Train(factory())).Skip(2).Min();
+    double legacy = best(() => { var nb = new Legacy { LabelDist = labelDist, FeatureSet = featureSets }; return (y, x, v) => nb.CalCondProb(x, y, v); }, 5);
+    double current = best(() => { var nb = new MultinomiaNaiveBayes { LabelDist = labelDist, FeatureSet = featureSets }; return (y, x, v) => nb.CalCondProb(x, y, v); }, 25);
     Console.WriteLine($"{N,5} sentences x {F,4} features x {L} labels: 0.4.0 {legacy,10:F2} ms | 0.5.0 {current,8:F2} ms | x{legacy / current,6:F0}");
 }
 

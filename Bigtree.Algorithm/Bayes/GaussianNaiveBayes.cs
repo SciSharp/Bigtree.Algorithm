@@ -1,5 +1,6 @@
 ﻿using Bigtree.Algorithm.Internal;
 using NumSharp;
+using NumSharp.Backends.Iteration;
 using System;
 
 namespace Bigtree.Algorithm.Bayes
@@ -23,6 +24,19 @@ namespace Bigtree.Algorithm.Bayes
     /// </remarks>
     public class GaussianNaiveBayes : IDisposable
     {
+        /// <summary>
+        ///     scikit-learn's <c>((X - theta) ** 2) / var</c> as one positional float64 program compiled once: Input(0)
+        ///     the samples (samples, features), Input(1) a class's means and Input(2) its variances (features,), which
+        ///     broadcast over the rows as the ufuncs' operands did.
+        /// </summary>
+        /// <remarks>
+        ///     NumPy's <c>** 2</c> is its square (a multiply), so the program's subtract, square and divide are
+        ///     scikit-learn's operations in its order and the bits stay scikit-learn's. Immutable and safe to evaluate
+        ///     from several threads, as concurrent predictions do.
+        /// </remarks>
+        private static readonly CompiledExpression WeightedSquare =
+            (NDExpr.Square(NDExpr.Input(0) - NDExpr.Input(1)) / NDExpr.Input(2)).Compile(NPTypeCode.Double, NPTypeCode.Double, NPTypeCode.Double);
+
         /// <summary>Creates an unfitted model.</summary>
         /// <param name="priors">
         ///     Fixed class priors, one per class in ascending label order, summing to 1. <c>null</c> (the default)
@@ -140,15 +154,17 @@ namespace Bigtree.Algorithm.Bayes
             var columns = new NDArray[Classes.size];
             for (int i = 0; i < columns.Length; i++)
             {
-                // A scope per class: its three (samples, features) temporaries are freed before the next class
-                // allocates them again. In the method's one scope all classes' temporaries stayed alive until it
-                // returned: 100,000 x 50 with 10 classes peaked at 1.4 GB for a 40 MB input.
+                // A scope per class: its (samples, features) temporary is freed before the next class allocates it
+                // again. In the method's one scope all classes' temporaries stayed alive until it returned: 100,000 x 50
+                // with 10 classes peaked at 1.4 GB for a 40 MB input.
                 using var perClass = NDScope.Open();
                 NDArray theta = Theta[i], variance = Var[i];
                 // scikit-learn's _joint_log_likelihood, term for term: a scalar normalizer, minus half the
-                // variance-weighted squared distance of every sample, plus the log prior.
+                // variance-weighted squared distance of every sample, plus the log prior. The distance's element-wise
+                // part, ((X - theta) ** 2) / var, is one fused pass (WeightedSquare): the same three operations in the
+                // same order, one temporary instead of three.
                 NDArray normalizer = -0.5 * np.sum(np.log(2.0 * Math.PI * variance));
-                NDArray distance = normalizer - 0.5 * np.sum(np.square(samples - theta) / variance, axis: 1);
+                NDArray distance = normalizer - 0.5 * np.sum(WeightedSquare.Evaluate(new[] { samples, theta, variance }), axis: 1);
                 columns[i] = perClass.Returns(logPrior[i] + distance);
             }
 

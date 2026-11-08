@@ -14,7 +14,8 @@ namespace Bigtree.Algorithm.LinearRegression
     ///     <c>mean(y) - mean(X) @ Coef.T</c>), but the centered problem is solved through the normal equations
     ///     <c>(Xc.T @ Xc) Coef.T = Xc.T @ yc</c> with <c>np.linalg.solve</c>, which NumSharp computes managed (LU).
     ///     scikit-learn calls LAPACK's SVD-based <c>lstsq</c>; NumSharp offers <c>lstsq</c> only with its OpenBLAS
-    ///     package installed.</para>
+    ///     package installed. Both products are summed over 32 MB blocks of centered rows, so a fit holds its input
+    ///     plus one block, never a whole centered copy.</para>
     ///     <para><b>Footgun: conditioning.</b> The normal equations square the condition number of the centered
     ///     <c>X</c>, so on nearly collinear features the coefficients lose about twice as many digits as an SVD solve
     ///     would; exactly collinear features (or more features than samples) make the system singular, and
@@ -24,6 +25,12 @@ namespace Bigtree.Algorithm.LinearRegression
     /// </remarks>
     public class LinearRegressionModel : IDisposable
     {
+        /// <summary>
+        ///     The centered rows <see cref="Fit"/> holds at once, in elements: 2^22 float64 (32 MB), the block size the
+        ///     KNN and SVM batch paths use too.
+        /// </summary>
+        private const long BlockElements = 1L << 22;
+
         /// <summary>Creates an unfitted model.</summary>
         /// <param name="fitIntercept">
         ///     <c>true</c> (the default) learns an offset; <c>false</c> forces the fit through the origin and leaves
@@ -70,13 +77,31 @@ namespace Bigtree.Algorithm.LinearRegression
 
             NDArray xOffset = FitIntercept ? np.mean(samples, axis: 0) : np.zeros(new Shape(samples.shape[1]));
             NDArray yOffset = FitIntercept ? np.mean(target, axis: 0) : np.zeros(target.ndim == 1 ? new Shape() : new Shape(target.shape[1]));
-            NDArray xc = samples - xOffset, yc = target - yOffset;
+            NDArray yc = target - yOffset;
+
+            // Xc.T @ Xc and Xc.T @ yc, summed over blocks of centered rows: the centered copy of X never exists whole
+            // (it doubled the fit's peak: a 160 MB input peaked at 385 MB), only one block of BlockElements at a time,
+            // each returned to the pool before the next is centered. One block (rows * features <= BlockElements) is
+            // the unblocked product itself, bit for bit; more blocks group the sums over the rows differently, a
+            // rounding-level difference.
+            long rows = samples.shape[0], features = samples.shape[1];
+            NDArray gram = np.zeros(new Shape(features, features));
+            NDArray moment = np.zeros(yc.ndim == 1 ? new Shape(features) : new Shape(features, yc.shape[1]));
+            long blockRows = Math.Max(1, BlockElements / features);
+            for (long start = 0; start < rows; start += blockRows)
+            {
+                using var block = NDScope.Open();
+                var range = new Slice(start, Math.Min(start + blockRows, rows));
+                NDArray xc = samples[range] - xOffset;
+                np.add(gram, np.dot(xc.T, xc), @out: gram);
+                np.add(moment, np.dot(xc.T, yc[range]), @out: moment);
+            }
 
             NDArray coef;
             try
             {
                 // (features, features) @ coef = (features,) or (features, targets): one LU solve for every target.
-                coef = np.linalg.solve(np.dot(xc.T, xc), np.dot(xc.T, yc));
+                coef = np.linalg.solve(gram, moment);
             }
             catch (LinAlgError e)
             {
@@ -171,7 +196,7 @@ namespace Bigtree.Algorithm.LinearRegression
             }
 
             NDArray target = NDHelpers.Targets(y, rows, nameof(y)).astype(np.float64, copy: false);
-            if (!(bool)np.all(np.isfinite(target)))
+            if (!NDHelpers.AllFinite(target))
                 throw new ArgumentException("y contains NaN or infinity.", nameof(y));
             return target;
         }

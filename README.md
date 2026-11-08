@@ -90,9 +90,11 @@ and ID3 ×15 to ×70 against 0.5.0's first port (0.4.0's ID3 cannot grow those t
 NumSharp spends a fixed 1.5-3 µs per call, so the estimators restructure their algorithms into whole-array
 operations instead of calling NumSharp per element or per sample. Where an algorithm is inherently sequential over
 small vectors (HMM recursions, the SMO solver, CRF decoding, growing a tree over coded columns) it stays a scalar loop.
-Element-wise formulas run as one fused `np.evaluate` pass (KNN distances, SVM kernels), and the neural network's
-(sigmoid, deltas, weight update) as `NDExpr` programs compiled once: 11 NumSharp calls per training step instead of
-about 24, the same weights to the bit, training 1.7 times faster at batch size 32 and 3 times at batch size 1.
+Element-wise formulas run as one fused `np.evaluate` pass (KNN distances, SVM kernels, the input finiteness checks),
+and the neural network's (sigmoid, deltas, weight update) and Gaussian Naive Bayes' variance-weighted distance as
+`NDExpr` programs compiled once. The bits stay those of the ufunc chains they replace: the network trains to the same
+weights with 11 NumSharp calls per step instead of about 24 (1.7 times faster at batch size 32, 3 times at batch size
+1), and Gaussian Naive Bayes stays bit-identical to scikit-learn with its distances 3.75 times faster.
 
 ### Memory
 
@@ -103,9 +105,11 @@ time by `NumSharp.Build`) return their temporaries to the pool on exit.
 
 A scope holds every temporary until its method returns, so a method that loops over classes or would build a
 (queries × training samples) matrix opens one scope per class or per block instead: KNN and SVM batch prediction run
-in blocks of 2^22 distances or kernel entries (32 MB) and write each block into the result, and Gaussian Naive Bayes
+in blocks of 2^22 distances or kernel entries (32 MB) and write each block into the result, linear regression sums its
+normal equations over 32 MB blocks of centered rows instead of centering a whole copy of `X`, and Gaussian Naive Bayes
 frees each class's temporaries before the next. KNN on 8,000 queries × 8,000 training samples peaks at 170 MB instead
-of 3.0 GB (and runs twice as fast), Gaussian Naive Bayes on 100,000 × 50 with 10 classes at 319 MB instead of 1.4 GB.
+of 3.0 GB (and runs twice as fast), Gaussian Naive Bayes on 100,000 × 50 with 10 classes at 280 MB instead of 1.4 GB,
+a linear regression fit of 200,000 × 100 at 277 MB instead of 385 MB (160 MB of it the input).
 
 ### Changes from 0.4.0
 

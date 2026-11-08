@@ -86,6 +86,32 @@ namespace Bigtree.Algorithm.UnitTest.LinearRegression
             Assert.AreEqual(0.0, model.Intercept.GetDouble());
         }
 
+        /// <summary>
+        ///     A fit whose centered rows span several blocks (60,000 × 80 = 4.8 M elements against blocks of 2^22, so
+        ///     52,428 + 7,572 rows) agrees with the normal equations solved over the whole centered matrix, for two
+        ///     targets at once, and recovers the generating weights through the noise.
+        /// </summary>
+        [TestMethod]
+        public void FitAcrossSeveralBlocksMatchesTheWholeProduct()
+        {
+            using var scope = NDScope.Open();
+            var rng = np.random.default_rng(21);
+            NDArray X = rng.normal(size: new Shape(60000, 80)) + 3.0;
+            NDArray weights = rng.normal(size: new Shape(80, 2));
+            NDArray y = np.dot(X, weights) + np.array(new[] { 1.0, -2.0 }) + 0.01 * rng.normal(size: new Shape(60000, 2));
+            using var model = new LinearRegressionModel().Fit(X, y);
+
+            NDArray xc = X - np.mean(X, axis: 0), yc = y - np.mean(y, axis: 0);
+            double[] whole = np.linalg.solve(np.dot(xc.T, xc), np.dot(xc.T, yc)).T.copy().ToArray<double>();
+            double[] blocked = model.Coef.ToArray<double>();
+            double[] generating = weights.T.copy().ToArray<double>();
+            for (int i = 0; i < whole.Length; i++)
+            {
+                Assert.AreEqual(whole[i], blocked[i], 1e-12, $"coefficient {i}");
+                Assert.AreEqual(generating[i], blocked[i], 1e-3, $"coefficient {i} against the generating weight");
+            }
+        }
+
         /// <summary>Collinear features have no unique solution and are refused; a constant target scores 1 when hit exactly.</summary>
         [TestMethod]
         public void CollinearFeaturesAreRefused()

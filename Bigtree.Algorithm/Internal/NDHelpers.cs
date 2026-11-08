@@ -42,10 +42,21 @@ namespace Bigtree.Algorithm.Internal
 
             // copy: false hands back X itself when it already is float64: an estimator reads it, never writes it.
             NDArray values = X.astype(np.float64, copy: false);
-            if (!(bool)np.all(np.isfinite(values)))
+            if (!AllFinite(values))
                 throw new ArgumentException($"{paramName} contains NaN or infinity.", paramName);
             return values;
         }
+
+        /// <summary>Whether every element of an array is finite (no NaN, no infinity).</summary>
+        /// <param name="values">The array; any numeric dtype.</param>
+        /// <returns><c>true</c> when no element is NaN or infinite (an empty array included).</returns>
+        /// <remarks>
+        ///     One fused <c>np.evaluate</c> reduction, <c>All(IsFinite(values))</c>: no temporary.
+        ///     <c>np.all(np.isfinite(values))</c> first wrote a bool array the size of <paramref name="values"/>, which
+        ///     the caller's scope then held until the estimator returned (20 MB beside a 200,000 × 100 input).
+        /// </remarks>
+        [NDScopedCovered]
+        internal static bool AllFinite(NDArray values) => (bool)np.evaluate(NDExpr.All(NDExpr.IsFinite(values)));
 
         /// <summary>
         ///     Validates a target vector against the number of samples it labels.

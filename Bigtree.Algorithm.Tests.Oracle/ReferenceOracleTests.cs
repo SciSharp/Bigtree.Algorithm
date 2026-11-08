@@ -62,14 +62,14 @@ namespace Bigtree.Algorithm.Tests.Oracle
         }
 
         /// <summary>
-        ///     Baum-Welch, 6 iterations from the same start on both of Run's paths (scalar below the 25,000 gate,
-        ///     NumSharp above it): a NumPy / SciPy log-space implementation learns the same pi, A and B to 1e-9.
+        ///     Baum-Welch, 6 iterations from the same start: Run's scaled forward-backward against a NumPy / SciPy
+        ///     log-space implementation, which learns the same pi, A and B to 1e-9.
         /// </summary>
         /// <param name="sequences">The number of observation sequences.</param>
         /// <param name="length">The length of every sequence.</param>
         [TestMethod]
-        [DataRow(8, 40, DisplayName = "scalar path")]
-        [DataRow(80, 100, DisplayName = "NumSharp path")]
+        [DataRow(8, 40, DisplayName = "8 x 40")]
+        [DataRow(80, 100, DisplayName = "80 x 100")]
         public void BaumWelch_MatchesNumPyReEstimation(int sequences, int length)
         {
             using var scope = NDScope.Open();

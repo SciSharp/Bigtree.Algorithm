@@ -4,6 +4,7 @@ using Bigtree.Algorithm.HiddenMarkovModel.MathHelpers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Linq;
+using HMM = Bigtree.Algorithm.HiddenMarkovModel.HiddenMarkovModel;
 
 namespace Bigtree.Algorithm.UnitTest.HiddenMarkovModel
 {
@@ -25,14 +26,14 @@ namespace Bigtree.Algorithm.UnitTest.HiddenMarkovModel
 
         /// <summary>
         ///     After the same number of iterations from the same start, Run and 0.4.0's scalar re-estimation learn the
-        ///     same probabilities. 750 observations × 2² states run the scalar path; 7,200 × 2² (28,800, above the
-        ///     25,000 gate) the NumSharp E/M step, which matches to rounding (its sums run in another order).
+        ///     same probabilities: Run's scaled forward-backward (multiply-adds normalized per step) against 0.4.0's
+        ///     log-space sums, which agree to rounding, on a small and a larger set of sequences.
         /// </summary>
         /// <param name="count">The number of sequences.</param>
         /// <param name="length">The length of every sequence.</param>
         [TestMethod]
-        [DataRow(25, 30, DisplayName = "scalar path")]
-        [DataRow(60, 120, DisplayName = "NumSharp path")]
+        [DataRow(25, 30, DisplayName = "25 x 30")]
+        [DataRow(60, 120, DisplayName = "60 x 120")]
         public void MatchesTheScalarReEstimation(int count, int length)
         {
             int[][] sequences = Sample(new Random(1), count, length);
@@ -47,12 +48,12 @@ namespace Bigtree.Algorithm.UnitTest.HiddenMarkovModel
             AssertClose(Flatten(scalar.LogEmissionMatrix), Flatten(trained.LogEmissionMatrix));
         }
 
-        /// <summary>Sequence weights shift the re-estimation exactly as in 0.4.0, on both paths.</summary>
+        /// <summary>Sequence weights give the re-estimation of 0.4.0 (where they cancel in the per-step normalization).</summary>
         /// <param name="count">The number of sequences.</param>
         /// <param name="length">The length of every sequence.</param>
         [TestMethod]
-        [DataRow(6, 12, DisplayName = "scalar path")]
-        [DataRow(60, 120, DisplayName = "NumSharp path")]
+        [DataRow(6, 12, DisplayName = "6 x 12")]
+        [DataRow(60, 120, DisplayName = "60 x 120")]
         public void WeightedSequencesMatchTheScalarReEstimation(int count, int length)
         {
             int[][] sequences = Sample(new Random(2), count, length);
@@ -65,6 +66,29 @@ namespace Bigtree.Algorithm.UnitTest.HiddenMarkovModel
 
             AssertClose(Flatten(scalar.LogTransitionMatrix), Flatten(trained.LogTransitionMatrix));
             AssertClose(Flatten(scalar.LogEmissionMatrix), Flatten(trained.LogEmissionMatrix));
+        }
+
+        /// <summary>
+        ///     A sequence that is impossible under the starting model (a symbol no state emits) cannot be scaled: Run then
+        ///     restarts in 0.4.0's log-space loops, so the result is 0.4.0's, NaN for NaN.
+        /// </summary>
+        [TestMethod]
+        public void ImpossibleSequenceFallsBackToTheLogSpaceLoops()
+        {
+            int[][] sequences = { new[] { 0, 1, 0, 1, 1 }, new[] { 1, 2, 0 }, new[] { 0, 0, 1 } };
+            HMM Start() => new HMM(
+                new[,] { { 0.6, 0.4 }, { 0.45, 0.55 } },
+                new[,] { { 0.5, 0.5, 0.0 }, { 0.6, 0.4, 0.0 } },
+                new[] { 0.5, 0.5 });
+            var trained = Start();
+            var scalar = Start();
+
+            new BaumWelchLearning(trained) { Iterations = 3, Tolerance = double.NegativeInfinity }.Run(sequences);
+            ScalarBaumWelch(scalar, sequences, mSteps: 2);
+
+            CollectionAssert.AreEqual(scalar.LogProbabilityVector, trained.LogProbabilityVector);
+            CollectionAssert.AreEqual(Flatten(scalar.LogTransitionMatrix), Flatten(trained.LogTransitionMatrix));
+            CollectionAssert.AreEqual(Flatten(scalar.LogEmissionMatrix), Flatten(trained.LogEmissionMatrix));
         }
 
         /// <summary>

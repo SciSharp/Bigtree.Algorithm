@@ -1,9 +1,9 @@
 #:project ../Bigtree.Algorithm/Bigtree.Algorithm.csproj
 #:property PublishAot=false
 #:property NoWarn=NDW012;NDW016;NDW017;CS8632
-// Baum-Welch: Bigtree 0.4.0's scalar Run (verbatim below, as LegacyBaumWelch) against 0.5.0's Run - scalar E/M below
-// 25,000 rows x states^2, NumSharp above - on the same models and sequences, 10 iterations each; both warmed, paused
-// for the tier-1 JIT, warmed again, then 10 interleaved rounds, best of each.
+// Baum-Welch: Bigtree 0.4.0's log-space Run (verbatim below, as LegacyBaumWelch) against 0.5.0's Run (Rabiner's scaled
+// forward-backward) on the same models and sequences, 10 iterations each; both warmed, paused for the tier-1 JIT, warmed
+// again, then 10 interleaved rounds, best of each.
 //   dotnet run -c Release benchmarks/BaumWelch.cs
 using System.Diagnostics;
 using Bigtree.Algorithm.HiddenMarkovModel;
@@ -38,7 +38,7 @@ foreach (var (K, T, N, M) in new[] { (10, 50, 2, 3), (20, 50, 3, 4), (20, 100, 3
     for (int w = 0; w < 4; w++) { Once(true); Once(false); }
     double bestLegacy = double.MaxValue, bestCurrent = double.MaxValue;
     for (int round = 0; round < 10; round++) { bestLegacy = Math.Min(bestLegacy, Once(true)); bestCurrent = Math.Min(bestCurrent, Once(false)); }
-    Console.WriteLine($"K={K,4} T={T,5} N={N,3} M={M,3} rows*N^2={K * T * N * N,9}: 0.4.0 scalar {bestLegacy,9:F2} ms | 0.5.0 {bestCurrent,9:F2} ms | x{bestLegacy / bestCurrent,5:F2}");
+    Console.WriteLine($"K={K,4} T={T,5} N={N,3} M={M,3} rows*N^2={K * T * N * N,9}: 0.4.0 {bestLegacy,9:F2} ms | 0.5.0 {bestCurrent,9:F2} ms | x{bestLegacy / bestCurrent,5:F2}");
 }
 
 /// <summary>Bigtree 0.4.0's discrete Baum-Welch Run, verbatim (commit dfb20dd), as the benchmark's baseline.</summary>

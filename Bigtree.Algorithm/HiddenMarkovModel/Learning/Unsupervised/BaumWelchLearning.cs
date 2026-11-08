@@ -1,7 +1,5 @@
 ﻿using Bigtree.Algorithm.HiddenMarkovModel.Helpers;
 using Bigtree.Algorithm.HiddenMarkovModel.MathHelpers;
-using Bigtree.Algorithm.Internal;
-using NumSharp;
 using System;
 using System.Linq;
 
@@ -13,19 +11,24 @@ namespace Bigtree.Algorithm.HiddenMarkovModel.Learning.Unsupervised
     ///     improving.
     /// </summary>
     /// <remarks>
-    ///     <para><b>How it computes.</b> The forward and backward recursions run per sequence as scalar loops (each
-    ///     time step depends on the previous one and touches only N states, where a NumSharp call would cost more than
-    ///     the arithmetic). From about 25,000 (observations × states²) on, everything after them runs on NumSharp over
-    ///     all sequences at once, stacked row after row: the state posteriors <c>gamma</c> (rows, N), the transition
-    ///     posteriors <c>ksi</c> (transitions, N, N), and the re-estimation, whose emission counts are one matrix
-    ///     product with the one-hot observations: 1.6 to 2.1 times faster than the scalar loops on 4,000 to 100,000
-    ///     observations. Smaller problems keep 0.4.0's scalar loops, which NumSharp's fixed per-call cost cannot beat
-    ///     there (see <see cref="VectorizedMinimumWork"/>). The probabilities stay in log space throughout.</para>
+    ///     <para><b>How it computes.</b> Rabiner's scaled forward-backward (<c>RunScaled</c>): every time step is
+    ///     normalized by its scale <c>c_t</c>, so the recursions are multiply-adds over contiguous rows instead of 0.4.0's
+    ///     log-space sums (an <c>exp</c> and a <c>log1p</c> per term), and an iteration's transition statistics
+    ///     accumulate as outer products <c>A ∘ Σ α̂_t ⊗ w_t</c> instead of a stored (N, N) posterior per time step. The
+    ///     model's parameters stay in log space. Measured against 0.4.0 (10 iterations): 100 sequences × 200
+    ///     observations × 8 states 2,842 ms → 52 ms; against 0.5.0's earlier NumSharp E/M step, 400 × 400 × 16 states
+    ///     (3 iterations) 15.2 s and a 4.3 GB peak → 0.42 s and no array beyond the sequences' (T × N) buffers. The
+    ///     recursions are sequential in time over N-sized vectors, where NumSharp's per-call cost exceeds the work,
+    ///     so this class computes without it.</para>
+    ///     <para>A sequence that is impossible under the starting model (a step of probability 0) cannot be scaled; then
+    ///     the run restarts from the starting model in 0.4.0's log-space loops (<c>RunScalar</c>), which reproduce 0.4.0's
+    ///     behaviour for such data.</para>
     ///     <para><b>Changed in 0.5.0.</b> The convergence log-likelihood sums the likelihood of every sequence (in log
     ///     space) before dividing by the sequence count, as in the Accord.NET algorithm this class derives from;
-    ///     Bigtree 0.4.0 reset it for every sequence and so measured only the last one. The vectorized path does
-    ///     not fill the per-sequence <see cref="mLogGamma"/> and <see cref="mLogKsi"/> scratch arrays (the scalar path
-    ///     and the continuous variant still do).</para>
+    ///     Bigtree 0.4.0 reset it for every sequence and so measured only the last one. Sequence weights cancel in the
+    ///     per-time-step normalization of the posteriors, in 0.4.0 as now, so they do not change the result. The scaled
+    ///     path does not fill the per-sequence <see cref="mLogGamma"/> and <see cref="mLogKsi"/> scratch arrays (the
+    ///     log-space fallback and the continuous variant still do).</para>
     /// </remarks>
     public partial class BaumWelchLearning : IUnsupervisedLearning
     {
@@ -117,90 +120,23 @@ namespace Bigtree.Algorithm.HiddenMarkovModel.Learning.Unsupervised
                 }
             }
 
-            int N = mModel.StateCount;
-            long rowCount = observations_db.Sum(sequence => (long)sequence.Length);
-
-            // NumSharp spends a fixed 1.5-3 µs per call, and the vectorized E/M step makes about a hundred calls per
-            // iteration whatever the size; it overtakes the scalar loops at about 25,000 (rows × N²) elements.
-            return rowCount * N * N < VectorizedMinimumWork
-                ? RunScalar(observations_db)
-                : RunVectorized(observations_db);
+            // The scaled path updates the model in place; keep the start, in case a sequence turns out impossible under
+            // it (a step of probability 0, which only log space represents) and the run has to restart there.
+            var startA = (double[,])mModel.LogTransitionMatrix.Clone();
+            var startB = (double[,])mModel.LogEmissionMatrix.Clone();
+            var startPi = (double[])mModel.LogProbabilityVector.Clone();
+            if (RunScaled(observations_db, out double logLikelihood))
+                return logLikelihood;
+            Buffer.BlockCopy(startA, 0, mModel.LogTransitionMatrix, 0, startA.Length * sizeof(double));
+            Buffer.BlockCopy(startB, 0, mModel.LogEmissionMatrix, 0, startB.Length * sizeof(double));
+            Buffer.BlockCopy(startPi, 0, mModel.LogProbabilityVector, 0, startPi.Length * sizeof(double));
+            return RunScalar(observations_db);
         }
 
         /// <summary>
-        ///     The problem size (total observations × states²) from which <see cref="Run(int[][], double[])"/> computes
-        ///     the E/M step on NumSharp; below it the scalar loops are faster.
-        /// </summary>
-        /// <remarks>
-        ///     Measured on 2026-11-08 (10 iterations, Release, best of 5): 1,000 rows × 3 states (9,000) scalar 17.8 ms
-        ///     vs NumSharp 19.7 ms; 2,000 × 3 (18,000) 30.7 vs 32.6 ms; 4,000 × 3 (36,000) 61.5 vs 37.5 ms; 2,000 × 5
-        ///     (50,000) 91.6 vs 53.4 ms; 40,000 × 10 9.3 s vs 4.4 s.
-        /// </remarks>
-        private const long VectorizedMinimumWork = 25_000;
-
-        /// <summary>
-        ///     Baum-Welch with every E/M step on NumSharp over all sequences at once (see the class remarks); the
-        ///     forward and backward recursions stay scalar per sequence.
-        /// </summary>
-        /// <param name="observations_db">The validated observation sequences.</param>
-        /// <returns>The final average log-likelihood.</returns>
-        private double RunVectorized(int[][] observations_db)
-        {
-            int K = observations_db.Length;
-            int N = mModel.StateCount;
-            double[,] logA = mModel.LogTransitionMatrix;
-            double[,] logB = mModel.LogEmissionMatrix;
-            double[] logPi = mModel.LogProbabilityVector;
-
-            // The sequences stacked row after row: sequence k occupies rows offset[k] .. offset[k + 1] - 1.
-            var offset = new int[K + 1];
-            for (int k = 0; k < K; ++k)
-                offset[k + 1] = offset[k] + observations_db[k].Length;
-            int rows = offset[K];
-            int maxT = observations_db.Max(x => x.Length);
-            double[,] lnfwd = new double[maxT, N];
-            double[,] lnbwd = new double[maxT, N];
-            var forward = new double[(long)rows * N];
-            var backward = new double[(long)rows * N];
-
-            // The arrays that do not change between iterations live for the whole run in this scope; each iteration
-            // opens its own (Iterate is [NDScoped]), so its temporaries return to the pool before the next one.
-            using var scope = NDScope.Open();
-            var layout = Layout.Create(observations_db, offset, mLogWeights, mModel.SymbolCount);
-
-            // Initialize the model log-likelihoods
-            double newLogLikelihood = Double.NegativeInfinity;
-            double oldLogLikelihood = Double.NegativeInfinity;
-            int iteration = 0;
-            bool should_continue = true;
-
-            do // Until convergence or max iterations is reached
-            {
-                oldLogLikelihood = newLogLikelihood;
-
-                // The recursions stay per sequence and scalar: every step depends on the previous one.
-                for (int k = 0; k < K; ++k)
-                {
-                    int[] observations = observations_db[k];
-                    ForwardBackwardAlgorithm.LogForward(logA, logB, logPi, observations, lnfwd);
-                    ForwardBackwardAlgorithm.LogBackward(logA, logB, logPi, observations, lnbwd);
-                    // Rows 0 .. T-1 of the (maxT, N) buffers are contiguous: one block copy per sequence.
-                    int bytes = observations.Length * N * sizeof(double);
-                    Buffer.BlockCopy(lnfwd, 0, forward, offset[k] * N * sizeof(double), bytes);
-                    Buffer.BlockCopy(lnbwd, 0, backward, offset[k] * N * sizeof(double), bytes);
-                }
-
-                iteration++;
-                should_continue = Iterate(layout, forward, backward, oldLogLikelihood, iteration, out newLogLikelihood);
-            } while (should_continue);
-
-            return newLogLikelihood;
-        }
-
-        /// <summary>
-        ///     Baum-Welch with Bigtree 0.4.0's scalar loops, for problems below <see cref="VectorizedMinimumWork"/>,
-        ///     where NumSharp's per-call cost would outweigh its arithmetic. Same results as the vectorized path to
-        ///     rounding; fills <see cref="mLogGamma"/> and <see cref="mLogKsi"/> as 0.4.0 did.
+        ///     Baum-Welch with Bigtree 0.4.0's log-space loops (one <c>exp</c> and one <c>log1p</c> per summed term): the
+        ///     fallback for observation sequences that are impossible under the starting model, which the scaled path
+        ///     cannot represent. Fills <see cref="mLogGamma"/> and <see cref="mLogKsi"/> as 0.4.0 did.
         /// </summary>
         /// <param name="observations_db">The validated observation sequences.</param>
         /// <returns>The final average log-likelihood.</returns>
@@ -388,82 +324,6 @@ namespace Bigtree.Algorithm.HiddenMarkovModel.Learning.Unsupervised
             return newLogLikelihood;
         }
 
-        /// <summary>
-        ///     One expectation step over every sequence at once and, unless training has converged, one maximization
-        ///     step that writes the new probabilities into the model's arrays.
-        /// </summary>
-        /// <param name="layout">The stacked observations and their index arrays.</param>
-        /// <param name="forward">Every sequence's log forward variables, stacked (rows, N), row-major.</param>
-        /// <param name="backward">Every sequence's log backward variables, stacked (rows, N), row-major.</param>
-        /// <param name="oldLogLikelihood">The previous iteration's log-likelihood.</param>
-        /// <param name="iteration">The 1-based number of this iteration.</param>
-        /// <param name="newLogLikelihood">This iteration's log-likelihood, computed before the update.</param>
-        /// <returns><c>true</c> when the model was updated and training continues; <c>false</c> when it has converged.</returns>
-        [NDScoped]
-        private bool Iterate(Layout layout, double[] forward, double[] backward, double oldLogLikelihood, int iteration, out double newLogLikelihood)
-        {
-            int N = mModel.StateCount;
-            NDArray F = np.array(forward).reshape(layout.Rows, N);
-            NDArray B = np.array(backward).reshape(layout.Rows, N);
-            NDArray logA = FromMatrix(mModel.LogTransitionMatrix);
-            NDArray logB = FromMatrix(mModel.LogEmissionMatrix);
-
-            // gamma[t, i] = log P(state i at t | sequence), normalized per row; a row with no mass stays as it is.
-            NDArray G = F + B + layout.RowWeight;
-            NDArray rowMass = NDHelpers.LogSumExp(G, 1);
-            NDArray logGamma = G - np.where(rowMass == double.NegativeInfinity, 0.0, rowMass).reshape(-1, 1);
-
-            // ksi[t, i, j] = log P(i at t, j at t + 1 | sequence) over every transition inside a sequence:
-            // forward[t, i] + w + logA[i, j] + backward[t + 1, j] + logB[j, symbol at t + 1], normalized per t.
-            NDArray logKsi = null;
-            long transitions = layout.Current.size;
-            if (transitions > 0)
-            {
-                NDArray emitted = logB.T[layout.NextSymbol];                        // (transitions, N): logB[j, o(t+1)]
-                NDArray from = (F[layout.Current] + layout.RowWeight[layout.Current]).reshape(transitions, N, 1);
-                NDArray to = (B[layout.Next] + emitted).reshape(transitions, 1, N);
-                NDArray ksi = from + logA.reshape(1, N, N) + to;
-                NDArray ksiMass = NDHelpers.LogSumExp(ksi.reshape(transitions, N * N), 1);
-                logKsi = ksi - ksiMass.reshape(transitions, 1, 1);
-            }
-
-            // log of the summed likelihood of every sequence, over the sequence count (Accord.NET's measure).
-            newLogLikelihood = NDHelpers.LogSumExp(F[layout.Last].reshape(1, -1), 1).GetDouble(0) / layout.Sequences;
-            if (ShouldTerminate(newLogLikelihood - oldLogLikelihood, iteration))
-                return false;
-
-            // pi: the posterior of each state at the first step, averaged over the sequences.
-            NDArray logPi = NDHelpers.LogSumExp(logGamma[layout.First], 0) - Math.Log(layout.Sequences);
-
-            // A[i, j] = expected i -> j transitions / expected visits to i before a sequence's last step. 0.4.0 wrote
-            // 0 (probability 1) where both are equal, including a never-visited state's -inf / -inf; kept as it was.
-            NDArray newLogA;
-            if (logKsi is not null)
-            {
-                NDArray numerator = NDHelpers.LogSumExp(logKsi.reshape(transitions, N * N), 0).reshape(N, N);
-                NDArray denominator = NDHelpers.LogSumExp(logGamma[layout.Current], 0).reshape(N, 1);
-                newLogA = np.where(numerator == denominator, 0.0, numerator - denominator);
-            }
-            else
-            {
-                newLogA = np.zeros(new Shape(N, N));
-            }
-
-            // B[i, m] = expected visits to i while emitting m / expected visits to i. The numerator is the posterior
-            // mass per symbol: one matrix product with the one-hot observations, shifted by each state's maximum so
-            // the exponentials cannot underflow to 0 where the log-space sum would not.
-            NDArray peak = np.amax(logGamma, axis: 0);
-            NDArray shift = np.where(np.isfinite(peak), peak, 0.0);
-            NDArray emissions = np.log(np.dot(np.exp(logGamma - shift).T, layout.Symbols)) + shift.reshape(N, 1);
-            NDArray newLogB = emissions - NDHelpers.LogSumExp(logGamma, 0).reshape(N, 1);
-
-            // In place: the model hands out these very arrays through its Log* properties.
-            CopyInto(logPi, mModel.LogProbabilityVector);
-            CopyInto(newLogA, mModel.LogTransitionMatrix);
-            CopyInto(newLogB, mModel.LogEmissionMatrix);
-            return true;
-        }
-
         /// <summary>Training stops when the improvement is at most <see cref="Tolerance"/> or <see cref="Iterations"/> is reached.</summary>
         /// <param name="change">The improvement of the log-likelihood in the last iteration.</param>
         /// <param name="iteration">The number of iterations done so far.</param>
@@ -481,104 +341,6 @@ namespace Bigtree.Algorithm.HiddenMarkovModel.Learning.Unsupervised
             }
 
             return false;
-        }
-
-        /// <summary>A copy of a 2-D managed array as a NumSharp array of the same shape.</summary>
-        /// <param name="matrix">The array to copy.</param>
-        /// <returns>A float64 array of <paramref name="matrix"/>'s shape; the caller's scope owns it.</returns>
-        [NDScopedCovered]
-        private static NDArray FromMatrix(double[,] matrix)
-        {
-            var flat = new double[matrix.Length];
-            Buffer.BlockCopy(matrix, 0, flat, 0, flat.Length * sizeof(double));
-            return np.array(flat).reshape(matrix.GetLength(0), matrix.GetLength(1));
-        }
-
-        /// <summary>Writes a NumSharp array's elements, in row-major order, into an existing managed array of the same size.</summary>
-        /// <param name="source">The values.</param>
-        /// <param name="target">A <c>double[]</c> or <c>double[,]</c> with as many elements; overwritten in place.</param>
-        private static void CopyInto(NDArray source, Array target)
-        {
-            double[] values = source.ToArray<double>();
-            Buffer.BlockCopy(values, 0, target, 0, values.Length * sizeof(double));
-        }
-
-        /// <summary>
-        ///     The stacked view of a run's observation sequences: what every iteration indexes with. Its arrays are
-        ///     created once per <see cref="Run(int[][], double[])"/> under that call's scope, which owns and reclaims
-        ///     them (hence borrowed: the layout never disposes them and must not outlive the run).
-        /// </summary>
-        [NDBorrowed]
-        private sealed class Layout
-        {
-            /// <summary>The total number of observations (rows).</summary>
-            public int Rows;
-
-            /// <summary>The number of sequences.</summary>
-            public int Sequences;
-
-            /// <summary>The row of every sequence's first observation, int64 (K,).</summary>
-            public NDArray First;
-
-            /// <summary>The row of every sequence's last observation, int64 (K,).</summary>
-            public NDArray Last;
-
-            /// <summary>Every row that has a successor in the same sequence (the transitions), int64.</summary>
-            public NDArray Current;
-
-            /// <summary>The successor of every row of <see cref="Current"/>, int64.</summary>
-            public NDArray Next;
-
-            /// <summary>The symbol observed at every row of <see cref="Next"/>, int64.</summary>
-            public NDArray NextSymbol;
-
-            /// <summary>The log weight of every row's sequence, float64 (rows, 1).</summary>
-            public NDArray RowWeight;
-
-            /// <summary>The one-hot observations, float64 (rows, symbols).</summary>
-            public NDArray Symbols;
-
-            /// <summary>Builds the layout of a run.</summary>
-            /// <param name="sequences">The observation sequences.</param>
-            /// <param name="offset">The first row of every sequence, plus the total row count at the end.</param>
-            /// <param name="logWeights">The log weight of every sequence.</param>
-            /// <param name="symbols">The model's symbol count.</param>
-            /// <returns>The layout; its arrays belong to the caller's scope.</returns>
-            [NDScopedCovered]
-            public static Layout Create(int[][] sequences, int[] offset, double[] logWeights, int symbols)
-            {
-                int K = sequences.Length, rows = offset[K];
-                var observed = new long[rows];
-                var weight = new double[rows];
-                var current = new long[rows - K];
-                int c = 0;
-                for (int k = 0; k < K; ++k)
-                {
-                    for (int t = 0; t < sequences[k].Length; ++t)
-                    {
-                        observed[offset[k] + t] = sequences[k][t];
-                        weight[offset[k] + t] = logWeights[k];
-                        if (t + 1 < sequences[k].Length)
-                            current[c++] = offset[k] + t;
-                    }
-                }
-
-                NDArray observedSymbols = np.array(observed);
-                NDArray currentRows = np.array(current);
-                NDArray nextRows = currentRows + 1;
-                return new Layout
-                {
-                    Rows = rows,
-                    Sequences = K,
-                    First = np.array(offset.Take(K).Select(row => (long)row).ToArray()),
-                    Last = np.array(offset.Skip(1).Select(row => (long)row - 1).ToArray()),
-                    Current = currentRows,
-                    Next = nextRows,
-                    NextSymbol = observedSymbols[nextRows],
-                    RowWeight = np.array(weight).reshape(rows, 1),
-                    Symbols = NDHelpers.OneHot(observedSymbols, symbols),
-                };
-            }
         }
     }
 }

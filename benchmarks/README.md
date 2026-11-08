@@ -32,19 +32,21 @@ value once with one matrix product. The log-probabilities are bit-identical.
 
 | sequences × length, states, symbols | rows × states² | 0.4.0 | 0.5.0 | ratio |
 |---|---|---|---|---|
-| 10 × 50, 2, 3 | 2,000 | 20.6 ms | 19.7 ms | ×1.05 |
-| 20 × 50, 3, 4 | 9,000 | 15.3 ms | 15.3 ms | ×1.00 |
-| 20 × 100, 3, 4 | 18,000 | 30.8 ms | 30.9 ms | ×1.00 |
-| 40 × 100, 3, 4 | 36,000 | 61.5 ms | 38.4 ms | ×1.60 |
-| 20 × 100, 5, 6 | 50,000 | 129.8 ms | 57.6 ms | ×2.25 |
-| 40 × 100, 4, 6 | 64,000 | 122.6 ms | 66.2 ms | ×1.85 |
-| 80 × 100, 3, 4 | 72,000 | 139.6 ms | 85.8 ms | ×1.63 |
-| 20 × 200, 6, 8 | 144,000 | 293.0 ms | 139.0 ms | ×2.11 |
-| 100 × 200, 8, 16 | 1,280,000 | 3,047 ms | 1,537 ms | ×1.98 |
+| 10 × 50, 2, 3 | 2,000 | 16.4 ms | 0.28 ms | ×58 |
+| 20 × 50, 3, 4 | 9,000 | 15.4 ms | 0.76 ms | ×20 |
+| 20 × 100, 3, 4 | 18,000 | 30.9 ms | 1.46 ms | ×21 |
+| 40 × 100, 3, 4 | 36,000 | 62.8 ms | 2.57 ms | ×24 |
+| 20 × 100, 5, 6 | 50,000 | 92.1 ms | 2.35 ms | ×39 |
+| 40 × 100, 4, 6 | 64,000 | 166.4 ms | 4.50 ms | ×37 |
+| 80 × 100, 3, 4 | 72,000 | 125.5 ms | 5.10 ms | ×25 |
+| 20 × 200, 6, 8 | 144,000 | 280.5 ms | 6.18 ms | ×45 |
+| 100 × 200, 8, 16 | 1,280,000 | 2,726 ms | 51.9 ms | ×53 |
 
-Below 25,000 (rows × states²) 0.5.0 runs 0.4.0's scalar E/M loops (NumSharp's fixed ~1.5-3 µs per call cannot win
-there); above it, the E/M step runs on NumSharp over all sequences at once. The forward/backward recursions stay
-scalar in both and dominate the remaining time.
+0.5.0 runs Rabiner's scaled forward-backward: each time step is normalized by its probability, so the recursions are
+multiply-adds where 0.4.0 took an `exp` and a `log1p` per summed term in log space, and the transition statistics
+accumulate as outer products instead of a stored (N, N) posterior per time step. Memory follows: 400 sequences × 400
+observations × 16 states (3 iterations) peaked at 4.3 GB in 0.5.0's first, NumSharp-tensor E/M step and runs in 43 MB
+now (0.42 s instead of 15.2 s). The learned parameters agree with 0.4.0's to rounding (7e-14 here).
 
 ## SVM prediction of a whole test set (RBF kernel)
 

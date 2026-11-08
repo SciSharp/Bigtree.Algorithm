@@ -11,7 +11,7 @@ net10.0).
 | CRF (Conditional Random Field) | `CRFLite.CRFEncoder`, `CRFDecoder` | CRFSharp (L-BFGS training, Viterbi decoding) |
 | KNN | `KNN.KnnModel` | distance matrix by one matrix product, `np.argpartition`, one-hot votes |
 | Decision Tree | `DecisionTree.Tree` | ID3; columns as NumSharp text arrays counted by `np.unique` + `np.bincount` |
-| HMM (Hidden Markov Model) | `HiddenMarkovModel.*` | forward/backward/Viterbi; Baum-Welch's E/M step on NumSharp for large problems |
+| HMM (Hidden Markov Model) | `HiddenMarkovModel.*` | forward/backward/Viterbi; Baum-Welch on Rabiner's scaled forward-backward |
 | Bayes | `Bayes.GaussianNaiveBayes`, `BernoulliNaiveBayes`, `MultinomiaNaiveBayes` | per-class reductions and matrix products |
 | Linear Regression | `LinearRegression.LinearRegressionModel` | centered normal equations solved by `np.linalg.solve` (managed) |
 | Artificial Neural Network | `NeuralNetwork.NetworkModel` | one weight matrix per layer, mini-batch backpropagation as matrix products |
@@ -83,7 +83,7 @@ dotnet test Bigtree.Algorithm.UnitTest
 ### Performance
 
 `benchmarks/` compares 0.5.0 with 0.4.0's own code, in one process: Multinomial Naive Bayes training ×37 to ×216,
-Baum-Welch ×1.6 to ×2.25 from 25,000 observations × states² (unchanged below), SVM batch prediction ×1.5 to ×4.7.
+Baum-Welch ×20 to ×58 (and a 400 × 400 × 16-state run in 43 MB instead of 4.3 GB), SVM batch prediction ×1.5 to ×4.7.
 See [benchmarks/README.md](benchmarks/README.md).
 
 NumSharp spends a fixed 1.5-3 µs per call, so the estimators restructure their algorithms into whole-array

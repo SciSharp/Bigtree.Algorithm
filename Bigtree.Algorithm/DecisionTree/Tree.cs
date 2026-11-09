@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using NumSharp;
 
 namespace Bigtree.Algorithm.DecisionTree
 {
@@ -104,164 +105,301 @@ namespace Bigtree.Algorithm.DecisionTree
             return result;
         }
 
+        /// <summary>
+        ///     Grows an ID3 decision tree: the attribute with the highest information gain becomes the node, and every
+        ///     value of it either ends in a leaf (all its rows share one label) or grows a subtree from those rows
+        ///     without that attribute.
+        /// </summary>
+        /// <param name="data">The training table: attribute columns, then the label column last.</param>
+        /// <param name="edgeName">The attribute value that leads to this subtree ("" for the root).</param>
+        /// <returns>The subtree's root node.</returns>
+        /// <remarks>
+        ///     <para><b>How it computes.</b> Every column is encoded ONCE: a NumSharp text array (sized up front, see
+        ///     <see cref="CodedTable.Create"/>) that <c>np.unique</c> turns into integer codes. The tree then grows over
+        ///     row-index subsets of those codes, counting each attribute's (value × label) table in one pass over the
+        ///     node's rows. Re-encoding the text at every node made a node of a few rows pay a dozen NumSharp calls per
+        ///     attribute (5,000 rows × 8 attributes took 0.8 s, now 61 ms in a fresh process).</para>
+        ///     <para>A subtable keeps every attribute except the one just used. Bigtree 0.4.0 also dropped every column
+        ///     to its LEFT (<c>Skip(TableIndex + 1)</c>), which lost attributes whenever the best one was not the
+        ///     first; the trees of tables where that never happened are unchanged.</para>
+        ///     <para>The entropy is the multi-class Shannon entropy, with <c>log(p) / log(2)</c> as 0.4.0's
+        ///     <c>Math.Log(p, 2)</c> computes it and the terms summed in first-appearance order: 0.4.0 split the labels
+        ///     into "the first row's label" and "anything else" for the attributes but not for the table, which is the
+        ///     same for two labels and inconsistent beyond. Edges keep the order in which the values first appear.</para>
+        ///     <para>When the attributes run out before the rows agree on a label (contradictory rows), the subtree is a
+        ///     leaf with the most frequent label (the first one in row order on a tie) instead of an exception.</para>
+        /// </remarks>
+        /// <exception cref="ArgumentException"><paramref name="data"/> has no rows.</exception>
         public static TreeNode Learn(TrainingData data, string edgeName)
         {
-            var root = GetRootNode(data, edgeName);
+            if (data.Rows.Length == 0)
+                throw new ArgumentException("The training table has no rows.", nameof(data));
 
-            foreach (var item in root.NodeAttribute.DifferentAttributeNames)
+            var table = CodedTable.Create(data);
+            var rows = new int[data.Rows.Length];
+            for (int i = 0; i < rows.Length; i++)
+                rows[i] = i;
+            var attributes = Enumerable.Range(0, data.Columns.Length - 1).ToArray();
+            return Grow(table, rows, attributes, edgeName);
+        }
+
+        /// <summary>
+        ///     The training table with every column encoded once: integer codes per row, and each code's text.
+        /// </summary>
+        private sealed class CodedTable
+        {
+            /// <summary>The column names; the last one is the label.</summary>
+            public string[] Names;
+
+            /// <summary><c>Codes[column][row]</c>: the row's value in that column, as an index into <see cref="Values"/>.</summary>
+            public int[][] Codes;
+
+            /// <summary><c>Values[column][code]</c>: the text of a code.</summary>
+            public string[][] Values;
+
+            /// <summary>The label column's index.</summary>
+            public int Label => Names.Length - 1;
+
+            /// <summary>Encodes every column of a table with <c>np.unique</c> over a NumSharp text array.</summary>
+            /// <param name="data">The table.</param>
+            /// <returns>The coded table.</returns>
+            /// <remarks>
+            ///     Each column becomes a text array sized up front (<see cref="Internal.NDHelpers.Text"/>):
+            ///     <c>np.array(string[])</c> alone runs NumPy's dtype discovery on every value, 10 times the cost of the
+            ///     copy for the same array.
+            /// </remarks>
+            /// <exception cref="ArgumentException">A cell is null: NumPy would need an object array for it (NumSharp's
+            ///     discovery refuses it), and a sized request would store the text "None" in its place.</exception>
+            public static CodedTable Create(TrainingData data)
             {
-                // if a leaf, leaf will be added in this method
-                var isLeaf = CheckIfIsLeaf(root, data, item);
-
-                // make a recursive call as long as the node is not a leaf
-                if (!isLeaf)
+                int columns = data.Columns.Length;
+                var table = new CodedTable { Names = data.Columns, Codes = new int[columns][], Values = new string[columns][] };
+                var column = new string[data.Rows.Length];
+                for (int c = 0; c < columns; c++)
                 {
-                    var reducedTable = new TrainingData
+                    // Checked here rather than in NDHelpers.Text so the message names the row and the column.
+                    for (int i = 0; i < column.Length; i++)
+                        column[i] = data.Rows[i][c] ?? throw new ArgumentException($"Row {i} has no value in column '{data.Columns[c]}'.", nameof(data));
+                    table.Encode(c, column);
+                }
+                return table;
+            }
+
+            /// <summary>Encodes one column: its codes and the text of every code, from <c>np.unique</c>.</summary>
+            /// <param name="c">The column index.</param>
+            /// <param name="column">The column's values, none null.</param>
+            /// <remarks>
+            ///     Its own woven scope, so each column's arrays return to the pool before the next column is encoded.
+            ///     <c>[NDScoped]</c> cannot sit on <see cref="Create"/>: the weaver refuses a method returning a
+            ///     reference type that is not an NDArray carrier (NDW003).
+            /// </remarks>
+            [NDScoped]
+            private void Encode(int c, string[] column)
+            {
+                var unique = np.unique(Internal.NDHelpers.Text(column), return_inverse: true);
+                Values[c] = Internal.NDHelpers.Strings(unique.values);
+                Codes[c] = unique.inverse_indices.astype(np.int32).ToArray<int>();
+            }
+        }
+
+        /// <summary>
+        ///     Grows the subtree of a row subset: picks its best attribute and adds one child per value of it (in order of
+        ///     first appearance among the rows), a leaf where the value's rows agree on the label.
+        /// </summary>
+        /// <param name="table">The coded table.</param>
+        /// <param name="rows">The subset's row indices, in table order.</param>
+        /// <param name="attributes">The attribute columns still available, in table order.</param>
+        /// <param name="edge">The attribute value that leads to this subtree.</param>
+        /// <returns>The subtree's root.</returns>
+        /// <remarks>
+        ///     A node reads its rows once for the labels, once per attribute (ranking the values and counting the
+        ///     (value × label) table together), and once more to hand each impure value its rows; the chosen attribute's
+        ///     table already tells which values are leaves (a single label counted) and how many rows each child gets.
+        /// </remarks>
+        private static TreeNode Grow(CodedTable table, int[] rows, int[] attributes, string edge)
+        {
+            if (attributes.Length == 0)
+                return new TreeNode(true, MajorityLabel(table, rows), edge);
+
+            int[] labels = table.Codes[table.Label];
+            var (labelOrder, labelTotals) = CountByAppearance(labels, rows, table.Values[table.Label].Length, null, null, 1);
+            int labelCount = labelTotals.Length;
+            double tableEntropy = Entropy(labelTotals, rows.Length);
+
+            int best = -1;
+            double bestGain = double.MinValue;
+            NodeAttribute bestAttribute = null;
+            int[] bestOrder = null;
+            double[] bestJoint = null;
+            var counts = new double[labelCount];
+            for (int a = 0; a < attributes.Length; a++)
+            {
+                int[] codes = table.Codes[attributes[a]];
+                // joint[v, l] = rows whose attribute value is the v-th to appear and whose label is the l-th to appear.
+                var (valueOrder, joint) = CountByAppearance(codes, rows, table.Values[attributes[a]].Length, labels, labelOrder, labelCount);
+                int valueCount = joint.Length / labelCount;
+
+                // Gain = H(S) - sum over values of |S_v| / |S| * H(S_v), summed in first-appearance order.
+                double remainder = 0;
+                for (int v = 0; v < valueCount; v++)
+                {
+                    Array.Copy(joint, v * labelCount, counts, 0, labelCount);
+                    double size = 0;
+                    foreach (double count in counts)
+                        size += count;
+                    remainder += size / rows.Length * Entropy(counts, size);
+                }
+
+                double gain = tableEntropy - remainder;
+                // Strictly greater: the first attribute (in table order) wins a tie, as in 0.4.0.
+                if (gain > bestGain)
+                {
+                    bestGain = gain;
+                    best = a;
+                    bestOrder = valueOrder;
+                    bestJoint = joint;
+                    bestAttribute = new NodeAttribute(table.Names[attributes[a]], InAppearanceOrder(table.Values[attributes[a]], valueOrder, valueCount).ToList())
                     {
-                        Columns = data.Columns.Skip(root.TableIndex + 1).Select(x => x).ToArray(),
-                        Rows = data.Rows.Where(x => x[root.TableIndex].Equals(item))
-                                .Select(x => x.Skip(root.TableIndex + 1).ToArray())
-                                .ToArray()
+                        InformationGain = gain,
                     };
-
-                    root.ChildNodes.Add(Learn(reducedTable, item));
                 }
             }
 
-            return root;
-        }
+            // TableIndex is the attribute's position in this subtree's table, which keeps the remaining columns in order.
+            var node = new TreeNode(bestAttribute.Name, best, bestAttribute, edge);
+            int[] remaining = attributes.Where((attribute, index) => index != best).ToArray();
+            int[] valueCodes = table.Codes[attributes[best]];
+            int children = bestAttribute.DifferentAttributeNames.Count;
 
-        private static bool CheckIfIsLeaf(TreeNode root, TrainingData data, string attributeToCheck)
-        {
-            var isLeaf = true;
-            var allEndValues = new List<string>();
-
-            // get all leaf values for the attribute in question
-            for (var i = 0; i < data.Rows.Length; i++)
+            // A value whose rows all share one label (one nonzero count in its row of the table) ends in a leaf with that
+            // label; any other value gets an exactly sized array for its rows.
+            var leafLabel = new int[children];
+            var subsets = new int[children][];
+            for (int v = 0; v < children; v++)
             {
-                if (data.Rows[i][root.TableIndex].ToString().Equals(attributeToCheck))
+                int present = 0, only = -1;
+                double size = 0;
+                for (int l = 0; l < labelCount; l++)
                 {
-                    allEndValues.Add(data.Rows[i][data.Columns.Length - 1].ToString());
-                }
-            }
-
-            // check whether all elements of the list have the same value
-            if (allEndValues.Count > 0 && allEndValues.Any(x => x != allEndValues[0]))
-            {
-                isLeaf = false;
-            }
-
-            // create leaf with value to display and edge to the leaf
-            if (isLeaf)
-            {
-                root.ChildNodes.Add(new TreeNode(true, allEndValues[0], attributeToCheck));
-            }
-
-            return isLeaf;
-        }
-
-        private static TreeNode GetRootNode(TrainingData data, string edge)
-        {
-            var attributes = new List<NodeAttribute>();
-            var highestInformationGainIndex = -1;
-            var highestInformationGain = double.MinValue;
-
-            // Get all names, amount of attributes and attributes for every column             
-            for (var i = 0; i < data.Columns.Length - 1; i++)
-            {
-                var differentAttributenames = data.Rows.Select(x => x[i]).Distinct().ToList();
-                attributes.Add(new NodeAttribute(data.Columns[i].ToString(), differentAttributenames));
-            }
-
-            // Calculate Entropy (S)
-            var tableEntropy = CalculateEntropy(data);
-
-            for (var i = 0; i < attributes.Count; i++)
-            {
-                attributes[i].InformationGain = GetGainForAllAttributes(data, i, tableEntropy);
-
-                if (attributes[i].InformationGain > highestInformationGain)
-                {
-                    highestInformationGain = attributes[i].InformationGain;
-                    highestInformationGainIndex = i;
-                }
-            }
-
-            return new TreeNode(attributes[highestInformationGainIndex].Name, highestInformationGainIndex, attributes[highestInformationGainIndex], edge);
-        }
-
-        private static double GetGainForAllAttributes(TrainingData data, int colIndex, double entropyOfDataset)
-        {
-            var totalRows = data.Rows.Length;
-            var amountForDifferentValue = GetAmountOfEdgesAndTotalPositivResults(data, colIndex);
-            var stepsForCalculation = new List<double>();
-
-            foreach (var item in amountForDifferentValue)
-            {
-                // helper for calculation
-                var firstDivision = item[0, 1] / (double)item[0, 0];
-                var secondDivision = (item[0, 0] - item[0, 1]) / (double)item[0, 0];
-
-                // prevent dividedByZeroException
-                if (firstDivision == 0 || secondDivision == 0)
-                {
-                    stepsForCalculation.Add(0.0);
-                }
-                else
-                {
-                    stepsForCalculation.Add(-firstDivision * Math.Log(firstDivision, 2) - secondDivision * Math.Log(secondDivision, 2));
-                }
-            }
-
-            var gain = stepsForCalculation.Select((t, i) => amountForDifferentValue[i][0, 0] / (double)totalRows * t).Sum();
-
-            gain = entropyOfDataset - gain;
-
-            return gain;
-        }
-
-        private static double CalculateEntropy(TrainingData data)
-        {
-            var totalRows = data.Rows.Length;
-            var amountForDifferentValue = GetAmountOfEdgesAndTotalPositivResults(data, data.Columns.Length - 1);
-
-            var stepsForCalculation = amountForDifferentValue
-                .Select(item => item[0, 0] / (double)totalRows)
-                .Select(division => -division * Math.Log(division, 2))
-                .ToList();
-
-            return stepsForCalculation.Sum();
-        }
-
-        private static List<int[,]> GetAmountOfEdgesAndTotalPositivResults(TrainingData data, int indexOfColumnToCheck)
-        {
-            var foundValues = new List<int[,]>();
-            var knownValues = data.Rows.Select(x => x[indexOfColumnToCheck]).Distinct().ToList();
-
-            foreach (var item in knownValues)
-            {
-                var amount = 0;
-                var positiveAmount = 0;
-
-                for (var i = 0; i < data.Rows.Length; i++)
-                {
-                    if (data.Rows[i][indexOfColumnToCheck].ToString().Equals(item))
+                    double count = bestJoint[v * labelCount + l];
+                    if (count > 0)
                     {
-                        amount++;
-
-                        // Counts the positive cases and adds the sum later to the array for the calculation
-                        if (data.Rows[i][data.Columns.Length - 1].ToString().Equals(data.Rows[0][data.Columns.Length - 1]))
-                        {
-                            positiveAmount++;
-                        }
+                        present++;
+                        only = l;
+                        size += count;
                     }
                 }
-
-                int[,] array = { { amount, positiveAmount } };
-                foundValues.Add(array);
+                leafLabel[v] = present == 1 ? only : -1;
+                if (present > 1)
+                    subsets[v] = new int[(int)size];
             }
 
-            return foundValues;
+            // One pass hands every impure value its rows, which stay in table order (the order every count, edge and
+            // first-row rule below them reads).
+            var filled = new int[children];
+            foreach (int row in rows)
+            {
+                int v = bestOrder[valueCodes[row]];
+                if (subsets[v] is int[] subset)
+                    subset[filled[v]++] = row;
+            }
+
+            var labelByRank = new int[labelCount];
+            for (int code = 0; code < labelOrder.Length; code++)
+                if (labelOrder[code] >= 0)
+                    labelByRank[labelOrder[code]] = code;
+            for (int v = 0; v < children; v++)
+            {
+                string value = bestAttribute.DifferentAttributeNames[v];
+                node.ChildNodes.Add(leafLabel[v] >= 0
+                    ? new TreeNode(true, table.Values[table.Label][labelByRank[leafLabel[v]]], value)
+                    : Grow(table, subsets[v], remaining, value));
+            }
+
+            return node;
+        }
+
+        /// <summary>
+        ///     Ranks the codes present among a row subset in order of first appearance (the order 0.4.0's
+        ///     <c>Distinct()</c> gave the edges and the entropy terms) and counts the rows per (rank, label rank) in the
+        ///     same pass.
+        /// </summary>
+        /// <param name="codes">A column's codes.</param>
+        /// <param name="rows">The subset's row indices, in table order.</param>
+        /// <param name="vocabulary">The column's number of distinct values in the whole table.</param>
+        /// <param name="labels">The label codes, or null to count the column's own values (one count per rank).</param>
+        /// <param name="labelOrder">The label codes' appearance ranks among the same rows (null with <paramref name="labels"/>).</param>
+        /// <param name="labelCount">The number of label ranks (1 when <paramref name="labels"/> is null).</param>
+        /// <returns>
+        ///     <c>order[code]</c> = the code's appearance rank (-1 when absent from the subset), and the counts as a
+        ///     (present ranks × <paramref name="labelCount"/>) row-major table.
+        /// </returns>
+        private static (int[] order, double[] counts) CountByAppearance(int[] codes, int[] rows, int vocabulary, int[] labels, int[] labelOrder, int labelCount)
+        {
+            var order = new int[vocabulary];
+            Array.Fill(order, -1);
+            // Sized for every code of the table, since the ranks are only known as the rows come; trimmed to the present ones.
+            var counts = new double[vocabulary * labelCount];
+            int present = 0;
+            foreach (int row in rows)
+            {
+                int code = codes[row];
+                int rank = order[code];
+                if (rank < 0)
+                    rank = order[code] = present++;
+                counts[rank * labelCount + (labels is null ? 0 : labelOrder[labels[row]])]++;
+            }
+
+            if (present < vocabulary)
+                Array.Resize(ref counts, present * labelCount);
+            return (order, counts);
+        }
+
+        /// <summary>The texts of the codes present in a subset, in appearance order.</summary>
+        /// <param name="values">The column's texts by code.</param>
+        /// <param name="order">The codes' appearance ranks (see <see cref="CountByAppearance"/>).</param>
+        /// <param name="count">The number of codes present.</param>
+        /// <returns>One text per present value.</returns>
+        private static string[] InAppearanceOrder(string[] values, int[] order, int count)
+        {
+            var result = new string[count];
+            for (int code = 0; code < order.Length; code++)
+                if (order[code] >= 0)
+                    result[order[code]] = values[code];
+            return result;
+        }
+
+        /// <summary>The Shannon entropy in bits of one row of counts.</summary>
+        /// <param name="counts">The counts, in the order their terms are summed.</param>
+        /// <param name="total">Their sum (positive).</param>
+        /// <returns><c>-sum(p * log2(p))</c> with <c>p = count / total</c> and 0 log 0 = 0.</returns>
+        private static double Entropy(double[] counts, double total)
+        {
+            double sum = 0;
+            foreach (double count in counts)
+            {
+                double p = count / total;
+                // log2 as log(p) / log(2), like 0.4.0's Math.Log(p, 2); an absent label contributes 0, not 0 * -inf.
+                if (p > 0)
+                    sum += p * (Math.Log(p) / Math.Log(2));
+            }
+            return -sum;
+        }
+
+        /// <summary>The most frequent label of a row subset, the first in row order on a tie.</summary>
+        /// <param name="table">The coded table.</param>
+        /// <param name="rows">The subset's row indices, at least one.</param>
+        /// <returns>The label's text.</returns>
+        private static string MajorityLabel(CodedTable table, int[] rows)
+        {
+            int[] labels = table.Codes[table.Label];
+            int winner = rows
+                .Select((row, index) => (label: labels[row], index))
+                .GroupBy(entry => entry.label)
+                .OrderByDescending(group => group.Count())
+                .ThenBy(group => group.First().index)
+                .First().Key;
+            return table.Values[table.Label][winner];
         }
     }
 }

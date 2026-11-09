@@ -54,11 +54,31 @@ namespace Bigtree.Algorithm.SVM
         /// <param name="lowerBound">The lower bound for scaling</param>
         /// <param name="upperBound">The upper bound for scaling</param>
         /// <returns>The Range transform for the problem</returns>
+        /// <remarks>
+        ///     The transform is indexed by <see cref="Node.Index"/> itself, so it serves 0-based problems (CherubNLP
+        ///     numbers its features from 0, with <c>MaxIndex</c> = the feature count) and libsvm's 1-based ones alike:
+        ///     it covers indices 0 .. max(<c>MaxIndex</c> - 1, largest index present). Bigtree 0.4.0 sized it by
+        ///     <c>MaxIndex</c> alone and swallowed the overflow of a 1-based problem's last feature in an empty
+        ///     <c>catch</c>, so that feature was never scaled and <see cref="Transform(double, int)"/> threw on it.
+        ///     For a 0-based problem the length, and therefore the written file, is unchanged.
+        /// </remarks>
+        /// <exception cref="ArgumentException">A node has a negative index.</exception>
         public static RangeTransform Compute(Problem prob, double lowerBound, double upperBound)
         {
-            double[] minVals = new double[prob.MaxIndex];
-            double[] maxVals = new double[prob.MaxIndex];
-            for (int i = 0; i < prob.MaxIndex; i++)
+            int length = prob.MaxIndex;
+            for (int i = 0; i < prob.Count; i++)
+            {
+                foreach (Node node in prob.X[i])
+                {
+                    if (node.Index < 0)
+                        throw new ArgumentException($"Sample {i} has a feature with the negative index {node.Index}.", nameof(prob));
+                    length = Math.Max(length, node.Index + 1);
+                }
+            }
+
+            double[] minVals = new double[length];
+            double[] maxVals = new double[length];
+            for (int i = 0; i < length; i++)
             {
                 minVals[i] = double.MaxValue;
                 maxVals[i] = double.MinValue;
@@ -67,21 +87,13 @@ namespace Bigtree.Algorithm.SVM
             {
                 for (int j = 0; j < prob.X[i].Length; j++)
                 {
-                    try
-                    {
-                        int index = prob.X[i][j].Index;
-                        double value = prob.X[i][j].Value;
-                        minVals[index] = Math.Min(minVals[index], value);
-                        maxVals[index] = Math.Max(maxVals[index], value);
-                    }
-                    catch (Exception ex)
-                    {
-
-                    }
-                    
+                    int index = prob.X[i][j].Index;
+                    double value = prob.X[i][j].Value;
+                    minVals[index] = Math.Min(minVals[index], value);
+                    maxVals[index] = Math.Max(maxVals[index], value);
                 }
             }
-            for (int i = 0; i < prob.MaxIndex; i++)
+            for (int i = 0; i < length; i++)
             {
                 if (minVals[i] == double.MaxValue || maxVals[i] == double.MinValue)
                 {

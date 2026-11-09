@@ -6,8 +6,12 @@ using System.Text;
 
 namespace Bigtree.Algorithm.UnitTest.Search
 {
+    /// <summary>
+    ///     Finding the one repeated number in a shuffled 0..9 where 8 was replaced by 5: three classic tricks.
+    ///     MSTest creates an instance per test and disposes it afterwards, which returns the array to NumSharp's pool.
+    /// </summary>
     [TestClass]
-    public class FindDuplicatedNumTest
+    public class FindDuplicatedNumTest : IDisposable
     {
         private NDArray nd;
         private int repeated;
@@ -19,6 +23,12 @@ namespace Bigtree.Algorithm.UnitTest.Search
             nd = np.arange(10);
             nd[8] = 5;
             np.random.shuffle(nd);
+        }
+
+        /// <summary>Returns the test array's buffer to NumSharp's pool after the test.</summary>
+        public void Dispose()
+        {
+            nd?.Dispose();
         }
 
         [TestMethod]
@@ -34,7 +44,7 @@ namespace Bigtree.Algorithm.UnitTest.Search
         private int Method1(int[] a)
         {
             int i;
-            int end = nd.size - 1;
+            int end = (int)nd.size - 1;
 
             for (i = 0; i <= end; i++)
                 a[end] += a[i];

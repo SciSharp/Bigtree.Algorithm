@@ -38,6 +38,10 @@ namespace Bigtree.Algorithm.HiddenMarkovModel
                 c_t += fwd[0, i] = pi[i] * B[i, observations[0]];
             }
 
+            // Bigtree 0.4.0 never stored the first scale, so the log-likelihood (the sum of log scales) was always
+            // -infinity and the scaled Backward divided by this zero at t = 0.
+            scale_vector[0] = c_t;
+
             //scale probability
             if (c_t != 0)
             {
@@ -84,7 +88,7 @@ namespace Bigtree.Algorithm.HiddenMarkovModel
         /// <param name="B">Emission Matrix: B[observation[t], i] is the probability that given the state at t is i, the observed state at t is observation[t]</param>
         /// <param name="pi">State Vector: pi[i] is the probability that a particular state is t at any time, this can be also interpreted as the probability of initial states </param>
         /// <param name="observations">Observed time series</param>
-        /// <param name="fwd">Forward Probability Matrix: fwd[t, i] is the scaled probability that provides us with the probability of being in state i at time t.</param>
+        /// <returns>Forward Probability Matrix: fwd[t, i] is the (unscaled) probability of the observations up to t and of being in state i at time t.</returns>
         public static double[,] Forward(double[,] A, double[,] B, double[] pi, int[] observations)
         {
             int T = observations.Length; // length of the observation
@@ -194,7 +198,8 @@ namespace Bigtree.Algorithm.HiddenMarkovModel
 
             Array.Clear(bwd, 0, bwd.Length);
 
-            for (int i = 0; i < N; ++N)
+            // ++i: Bigtree 0.4.0 incremented N here, so the loop never ended and wrote past the row's end.
+            for (int i = 0; i < N; ++i)
             {
                 bwd[T - 1, i] = 1.0 / scale_vector[T-1];
             }

@@ -1,46 +1,60 @@
 using Bigtree.Algorithm.CRFLite;
 using Bigtree.Algorithm.CRFLite.Encoder;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
+using System;
 using System.IO;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Bigtree.Algorithm.UnitTest.CRFLite
 {
+    /// <summary>
+    ///     Training a CRF model. Bigtree 0.4.0 read its corpus and template from its author's disk
+    ///     (<c>C:\Users\haipi\...</c>); the test now trains on a small named-entity corpus that ships with the tests
+    ///     (<c>data/crf</c>: word, part of speech, tag; tab-separated, a blank line between sentences).
+    /// </summary>
     [TestClass]
-    public class EncoderTest
+    public class EncoderTest : TestEssential
     {
         /// <summary>
-        /// 
+        ///     Trains a model from the corpus and the template into a temporary folder and checks the model files exist.
         /// </summary>
         [TestMethod]
         public void TestEncode()
         {
-            var encoder = new CRFEncoder();
-            bool result = encoder.Learn(new EncoderOptions
+            string folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bigtree-crf-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            try
             {
-                /*
-                 * traing corups format, split by tab, sentences is seperated by blank row
-                 * 
-                    ! PUN S
-                    Tokyo NNP S_LOCATION
-                    and	CC S
-                    New	NNP	B_LOCATION
-                    York NNP	E_LOCATION
-                    are	VBP	S
-                    major JJ S
-                    financial JJ S
-                    centers	NNS	S
-                    . PUN S
-                 */
-                TrainingCorpusFileName = @"C:\Users\haipi\Documents\Projects\BotSharp\Data\CRF\eng.1k.training",
-                TemplateFileName = @"C:\Users\haipi\Documents\Projects\BotSharp\Data\CRF\template.en",
-                ModelFileName = @"C:\Users\haipi\Documents\Projects\BotSharp\Data\CRF\ner_model"
-            });
+                string model = System.IO.Path.Combine(folder, "ner_model");
+                var encoder = new CRFEncoder();
+                bool result = encoder.Learn(new EncoderOptions
+                {
+                    /*
+                     * traing corups format, split by tab, sentences is seperated by blank row
+                     *
+                        Tokyo NNP S_LOCATION
+                        and	CC S
+                        New	NNP	B_LOCATION
+                        York NNP	E_LOCATION
+                        are	VBP	S
+                        major JJ S
+                        financial JJ S
+                        centers	NNS	S
+                        . PUN S
+                     */
+                    TrainingCorpusFileName = System.IO.Path.Combine(DataDir, "crf", "train.txt"),
+                    TemplateFileName = System.IO.Path.Combine(DataDir, "crf", "template.txt"),
+                    ModelFileName = model,
+                    MaxIteration = 60,
+                });
 
-            Assert.IsTrue(result);
+                Assert.IsTrue(result);
+                Assert.IsTrue(File.Exists(model), "the model's metadata file");
+                Assert.IsTrue(new FileInfo(model).Length > 0);
+            }
+            finally
+            {
+                Directory.Delete(folder, recursive: true);
+            }
         }
     }
 }

@@ -1,11 +1,244 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using Bigtree.Algorithm.Internal;
+using NumSharp;
+using System;
 
 namespace Bigtree.Algorithm.LinearRegression
 {
-    public class LinearRegressionModel
+    /// <summary>
+    ///     Ordinary least squares: the weights <see cref="Coef"/> and offset <see cref="Intercept"/> that minimize the
+    ///     squared error of <c>X @ Coef.T + Intercept</c> against the target. scikit-learn's <c>LinearRegression</c>
+    ///     contract, computed on NumSharp without a native backend.
+    /// </summary>
+    /// <remarks>
+    ///     <para><b>How it computes.</b> Like scikit-learn, the data are centered first (the intercept is then
+    ///     <c>mean(y) - mean(X) @ Coef.T</c>), but the centered problem is solved through the normal equations
+    ///     <c>(Xc.T @ Xc) Coef.T = Xc.T @ yc</c> with <c>np.linalg.solve</c>, which NumSharp computes managed (LU).
+    ///     scikit-learn calls LAPACK's SVD-based <c>lstsq</c>; NumSharp offers <c>lstsq</c> only with its OpenBLAS
+    ///     package installed. Both products are summed over 32 MB blocks of centered rows, so a fit holds its input
+    ///     plus one block, never a whole centered copy.</para>
+    ///     <para><b>Footgun: conditioning.</b> The normal equations square the condition number of the centered
+    ///     <c>X</c>, so on nearly collinear features the coefficients lose about twice as many digits as an SVD solve
+    ///     would; exactly collinear features (or more features than samples) make the system singular, and
+    ///     <see cref="Fit"/> refuses it instead of returning scikit-learn's minimum-norm solution.</para>
+    ///     <para><b>Ownership.</b> The fitted arrays belong to the model; dispose the model (or let the finalizer do it)
+    ///     to return their buffers to NumSharp's pool.</para>
+    /// </remarks>
+    public class LinearRegressionModel : IDisposable
     {
+        /// <summary>
+        ///     The centered rows <see cref="Fit"/> holds at once, in elements: 2^22 float64 (32 MB), the block size the
+        ///     KNN and SVM batch paths use too.
+        /// </summary>
+        private const long BlockElements = 1L << 22;
 
+        /// <summary>Creates an unfitted model.</summary>
+        /// <param name="fitIntercept">
+        ///     <c>true</c> (the default) learns an offset; <c>false</c> forces the fit through the origin and leaves
+        ///     <see cref="Intercept"/> at 0.
+        /// </param>
+        public LinearRegressionModel(bool fitIntercept = true)
+        {
+            FitIntercept = fitIntercept;
+        }
+
+        /// <summary>Whether <see cref="Fit"/> learns an offset.</summary>
+        public bool FitIntercept { get; }
+
+        /// <summary>
+        ///     The weights (<c>coef_</c>): shape (features,) for a 1-D target, (targets, features) for a 2-D one.
+        /// </summary>
+        public NDArray Coef { get; private set; }
+
+        /// <summary>
+        ///     The offset (<c>intercept_</c>): a 0-d array for a 1-D target, shape (targets,) for a 2-D one; zeros
+        ///     when <see cref="FitIntercept"/> is <c>false</c>.
+        /// </summary>
+        public NDArray Intercept { get; private set; }
+
+        /// <summary>Fits the least-squares weights and offset.</summary>
+        /// <param name="X">The samples, shape (samples, features); any numeric dtype, computed as float64.</param>
+        /// <param name="y">The target: shape (samples,) or (samples, targets) for several targets at once.</param>
+        /// <returns>This model, fitted (a previous fit is replaced and its arrays disposed).</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="X"/> or <paramref name="y"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">
+        ///     <paramref name="X"/> is not a finite 2-D array, or <paramref name="y"/> is not a finite 1-D or 2-D array
+        ///     with one row per sample.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        ///     The features are linearly dependent (after centering), so the least-squares solution is not unique.
+        /// </exception>
+        public LinearRegressionModel Fit(NDArray X, NDArray y)
+        {
+            FitCore(X, y);
+            return this;
+        }
+
+        /// <summary>
+        ///     The body of <see cref="Fit"/>: centers, sums the normal equations block by block, solves them and stores
+        ///     the fitted arrays. Every temporary returns to the pool when the woven scope closes; the fitted arrays are
+        ///     detached from it, because the model keeps them past this call.
+        /// </summary>
+        /// <param name="X">The samples (see <see cref="Fit"/>).</param>
+        /// <param name="y">The target.</param>
+        /// <remarks>
+        ///     <c>[NDScoped]</c> cannot sit on <see cref="Fit"/> itself: the weaver refuses a method returning a reference
+        ///     type that is not an NDArray carrier (NDW003), and <see cref="Fit"/> returns the model.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="X"/> or <paramref name="y"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">See <see cref="Fit"/>.</exception>
+        /// <exception cref="InvalidOperationException">The features are linearly dependent (see <see cref="Fit"/>).</exception>
+        [NDScoped]
+        private void FitCore(NDArray X, NDArray y)
+        {
+            NDArray samples = NDHelpers.Float64Matrix(X, nameof(X));
+            NDArray target = Target(y, samples.shape[0]);
+
+            NDArray xOffset = FitIntercept ? np.mean(samples, axis: 0) : np.zeros(new Shape(samples.shape[1]));
+            NDArray yOffset = FitIntercept ? np.mean(target, axis: 0) : np.zeros(target.ndim == 1 ? new Shape() : new Shape(target.shape[1]));
+            NDArray yc = target - yOffset;
+
+            // Xc.T @ Xc and Xc.T @ yc, summed over blocks of centered rows: the centered copy of X never exists whole
+            // (it doubled the fit's peak: a 160 MB input peaked at 385 MB), only one block of BlockElements at a time,
+            // each returned to the pool before the next is centered. One block (rows * features <= BlockElements) is
+            // the unblocked product itself, bit for bit; more blocks group the sums over the rows differently, a
+            // rounding-level difference.
+            long rows = samples.shape[0], features = samples.shape[1];
+            NDArray gram = np.zeros(new Shape(features, features));
+            NDArray moment = np.zeros(yc.ndim == 1 ? new Shape(features) : new Shape(features, yc.shape[1]));
+            long blockRows = Math.Max(1, BlockElements / features);
+            for (long start = 0; start < rows; start += blockRows)
+                AccumulateBlock(samples, yc, xOffset, new Slice(start, Math.Min(start + blockRows, rows)), gram, moment);
+
+            NDArray coef;
+            try
+            {
+                // (features, features) @ coef = (features,) or (features, targets): one LU solve for every target.
+                coef = np.linalg.solve(gram, moment);
+            }
+            catch (LinAlgError e)
+            {
+                // np.linalg.solve raises NumPy's "Singular matrix" for X.T @ X without full rank.
+                throw new InvalidOperationException(
+                    "The features are linearly dependent (or fewer samples than features), so the least-squares " +
+                    "solution is not unique; drop the redundant features.", e);
+            }
+
+            // scikit-learn's layout: (features,) for one target, (targets, features) for several.
+            coef = target.ndim == 1 ? coef : coef.T.copy();
+            NDArray intercept = target.ndim == 1
+                ? yOffset - np.dot(xOffset, coef)
+                : yOffset - np.dot(xOffset, coef.T);
+
+            NDScope.Detach(new[] { coef, intercept });
+            ReleaseFitted();
+            Coef = coef;
+            Intercept = intercept;
+        }
+
+        /// <summary>
+        ///     Adds one block's share of the normal equations: <c>gram += Xc.T @ Xc</c> and <c>moment += Xc.T @ yc</c>
+        ///     for the block's centered rows <c>Xc</c>.
+        /// </summary>
+        /// <param name="samples">All samples, float64.</param>
+        /// <param name="yc">The centered target, all rows.</param>
+        /// <param name="xOffset">The column means subtracted from every row (zeros without an intercept).</param>
+        /// <param name="range">The block's rows.</param>
+        /// <param name="gram">The (features, features) running sum, updated in place.</param>
+        /// <param name="moment">The (features,) or (features, targets) running sum, updated in place.</param>
+        /// <remarks>
+        ///     Its own woven scope: the block's centered copy returns to the pool before the next block is centered, so
+        ///     a fit holds its input plus one block, never a whole centered copy of X.
+        /// </remarks>
+        [NDScoped]
+        private static void AccumulateBlock(NDArray samples, NDArray yc, NDArray xOffset, Slice range, NDArray gram, NDArray moment)
+        {
+            NDArray xc = samples[range] - xOffset;
+            np.add(gram, np.dot(xc.T, xc), @out: gram);
+            np.add(moment, np.dot(xc.T, yc[range]), @out: moment);
+        }
+
+        /// <summary>The fitted model's prediction for every sample: <c>X @ Coef.T + Intercept</c>.</summary>
+        /// <param name="X">The samples, shape (samples, features) with the fitted feature count.</param>
+        /// <returns>A float64 array of shape (samples,) for a 1-D training target, else (samples, targets).</returns>
+        /// <exception cref="InvalidOperationException">The model is not fitted.</exception>
+        /// <exception cref="ArgumentException"><paramref name="X"/> is not a finite 2-D array with the fitted feature count.</exception>
+        [NDScoped]
+        public NDArray Predict(NDArray X)
+        {
+            if (Coef is null)
+                throw new InvalidOperationException("This LinearRegressionModel is not fitted yet: call Fit first.");
+            NDArray samples = NDHelpers.Float64Matrix(X, nameof(X));
+            long features = Coef.shape[Coef.ndim - 1];
+            if (samples.shape[1] != features)
+                throw new ArgumentException($"X has {samples.shape[1]} features, but the model was fitted with {features}.", nameof(X));
+            return np.dot(samples, Coef.T) + Intercept;
+        }
+
+        /// <summary>
+        ///     The coefficient of determination R² of the predictions (<c>score</c>): 1 - (residual sum of squares) /
+        ///     (total sum of squares), averaged uniformly over the targets of a 2-D target.
+        /// </summary>
+        /// <param name="X">The samples, shape (samples, features) with the fitted feature count.</param>
+        /// <param name="y">Their true targets, shaped like the training target.</param>
+        /// <returns>
+        ///     1 for a perfect fit, 0 for a model that always predicts the mean, below 0 for a worse one. A constant
+        ///     target scores 1 when predicted exactly and 0 otherwise (scikit-learn's <c>r2_score</c> convention).
+        /// </returns>
+        /// <exception cref="InvalidOperationException">The model is not fitted.</exception>
+        /// <exception cref="ArgumentException"><paramref name="X"/> or <paramref name="y"/> does not match the fitted model.</exception>
+        [NDScoped]
+        public double Score(NDArray X, NDArray y)
+        {
+            NDArray predicted = Predict(X);
+            NDArray truth = Target(y, predicted.shape[0]);
+            if (truth.ndim != predicted.ndim)
+                throw new ArgumentException("y must have the shape of the training target.", nameof(y));
+
+            NDArray residual = np.sum(np.square(truth - predicted), axis: 0);
+            NDArray total = np.sum(np.square(truth - np.mean(truth, axis: 0)), axis: 0);
+            // r2_score: a constant target (total 0) scores 1 if predicted exactly, else 0, instead of dividing by 0.
+            NDArray perTarget = np.where(total != 0, 1.0 - residual / np.where(total != 0, total, 1.0),
+                                         np.where(residual == 0, 1.0, 0.0));
+            return np.mean(perTarget).GetDouble();
+        }
+
+        /// <summary>Returns the fitted arrays' buffers to NumSharp's pool; the model is unfitted afterwards.</summary>
+        public void Dispose()
+        {
+            ReleaseFitted();
+            GC.SuppressFinalize(this);
+        }
+
+        /// <summary>Validates a regression target: finite, 1-D or 2-D, one row per sample; returns it as float64.</summary>
+        /// <param name="y">The target.</param>
+        /// <param name="rows">The sample count.</param>
+        /// <returns><paramref name="y"/> as float64 (no copy when it already is).</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="y"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException"><paramref name="y"/> has the wrong shape or holds NaN or infinity.</exception>
+        private static NDArray Target(NDArray y, long rows)
+        {
+            if (y is null)
+                throw new ArgumentNullException(nameof(y));
+            if (y.ndim == 2)
+            {
+                NDArray targets = NDHelpers.Float64Matrix(y, nameof(y));
+                return targets.shape[0] == rows
+                    ? targets
+                    : throw new ArgumentException($"y has {targets.shape[0]} rows for {rows} samples.", nameof(y));
+            }
+
+            NDArray target = NDHelpers.Targets(y, rows, nameof(y)).astype(np.float64, copy: false);
+            if (!NDHelpers.AllFinite(target))
+                throw new ArgumentException("y contains NaN or infinity.", nameof(y));
+            return target;
+        }
+
+        /// <summary>Disposes the arrays of the current fit, if any, and forgets them.</summary>
+        private void ReleaseFitted()
+        {
+            Coef?.Dispose();
+            Intercept?.Dispose();
+            Coef = Intercept = null;
+        }
     }
 }

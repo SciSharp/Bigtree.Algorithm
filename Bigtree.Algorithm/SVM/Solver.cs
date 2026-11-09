@@ -1766,10 +1766,16 @@ namespace Bigtree.Algorithm.SVM
                     weighted_C[i] = param.C;
                 for (i = 0; i < nr_class; i++)
                 {
-                    if (!param.Weights.ContainsKey(label[i]))
-                        Console.Error.Write("WARNING: class label " + label[i] + " specified in weight is not found\n");
-                    else
-                        weighted_C[i] *= param.Weights[label[i]];
+                    if (param.Weights.TryGetValue(label[i], out double classWeight))
+                        weighted_C[i] *= classWeight;
+                }
+                // libsvm's warning is about a WEIGHT whose label is no class of the data. Bigtree 0.4.0 warned about
+                // every class without a weight instead, so a default Parameter (no weights) printed one false warning
+                // per class on every training.
+                foreach (int weightLabel in param.Weights.Keys)
+                {
+                    if (Array.IndexOf(label, weightLabel, 0, nr_class) < 0)
+                        Console.Error.Write("WARNING: class label " + weightLabel + " specified in weight is not found\n");
                 }
 
                 // train k*(k-1)/2 models

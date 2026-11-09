@@ -1,4 +1,4 @@
-/*
+﻿/*
  * SVM.NET Library
  * Copyright (C) 2008 Matthew Johnson
  * 
@@ -322,6 +322,13 @@ namespace Bigtree.Algorithm.SVM
         /// </summary>
         /// <param name="stream">The output stream</param>
         /// <param name="model">The model to write</param>
+        /// <remarks>
+        ///     Every real number is written in round-trip form ("R"), so <see cref="Read(Stream)"/> restores exactly the
+        ///     model that was written, as libsvm's <c>%.17g</c> does. Bigtree 0.4.0 wrote six decimals, so a saved and
+        ///     reloaded model had other coefficients (any below 5e-7 became 0) and could predict differently; files it
+        ///     wrote still read as before. A precomputed kernel's sample serial number is written as the integer it is
+        ///     (libsvm's <c>0:%d</c>).
+        /// </remarks>
         public static void Write(Stream stream, Model model)
         {
             TemporaryCulture.Start();
@@ -337,10 +344,10 @@ namespace Bigtree.Algorithm.SVM
                 output.Write("degree {0}\n", param.Degree);
 
             if (param.KernelType == KernelType.POLY || param.KernelType == KernelType.RBF || param.KernelType == KernelType.SIGMOID)
-                output.Write("gamma {0:0.000000}\n", param.Gamma);
+                output.Write("gamma {0:R}\n", param.Gamma);
 
             if (param.KernelType == KernelType.POLY || param.KernelType == KernelType.SIGMOID)
-                output.Write("coef0 {0:0.000000}\n", param.Coefficient0);
+                output.Write("coef0 {0:R}\n", param.Coefficient0);
 
             int nr_class = model.NumberOfClasses;
             int l = model.SupportVectorCount;
@@ -350,7 +357,7 @@ namespace Bigtree.Algorithm.SVM
             {
                 output.Write("rho");
                 for (int i = 0; i < nr_class * (nr_class - 1) / 2; i++)
-                    output.Write(" {0:0.000000}", model.Rho[i]);
+                    output.Write(" {0:R}", model.Rho[i]);
                 output.Write("\n");
             }
 
@@ -367,14 +374,14 @@ namespace Bigtree.Algorithm.SVM
             {
                 output.Write("probA");
                 for (int i = 0; i < nr_class * (nr_class - 1) / 2; i++)
-                    output.Write(" {0:0.000000}", model.PairwiseProbabilityA[i]);
+                    output.Write(" {0:R}", model.PairwiseProbabilityA[i]);
                 output.Write("\n");
             }
             if (model.PairwiseProbabilityB != null)
             {
                 output.Write("probB");
                 for (int i = 0; i < nr_class * (nr_class - 1) / 2; i++)
-                    output.Write(" {0:0.000000}", model.PairwiseProbabilityB[i]);
+                    output.Write(" {0:R}", model.PairwiseProbabilityB[i]);
                 output.Write("\n");
             }
 
@@ -393,7 +400,7 @@ namespace Bigtree.Algorithm.SVM
             for (int i = 0; i < l; i++)
             {
                 for (int j = 0; j < nr_class - 1; j++)
-                    output.Write("{0:0.000000} ", sv_coef[j][i]);
+                    output.Write("{0:R} ", sv_coef[j][i]);
 
                 Node[] p = SV[i];
                 if (p.Length == 0)
@@ -402,12 +409,12 @@ namespace Bigtree.Algorithm.SVM
                     continue;
                 }
                 if (param.KernelType == KernelType.PRECOMPUTED)
-                    output.Write("0:{0:0.000000}", (int)p[0].Value);
+                    output.Write("0:{0}", (int)p[0].Value);
                 else
                 {
-                    output.Write("{0}:{1:0.000000}", p[0].Index, p[0].Value);
+                    output.Write("{0}:{1:R}", p[0].Index, p[0].Value);
                     for (int j = 1; j < p.Length; j++)
-                        output.Write(" {0}:{1:0.000000}", p[j].Index, p[j].Value);
+                        output.Write(" {0}:{1:R}", p[j].Index, p[j].Value);
                 }
                 output.Write("\n");
             }

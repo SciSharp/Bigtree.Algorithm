@@ -1,0 +1,15 @@
+# Unigram features: the word and its neighbours, word pairs, and the part-of-speech window
+U00:%x[-2,0]
+U01:%x[-1,0]
+U02:%x[0,0]
+U03:%x[1,0]
+U04:%x[2,0]
+U05:%x[-1,0]/%x[0,0]
+U06:%x[0,0]/%x[1,0]
+U10:%x[-1,1]
+U11:%x[0,1]
+U12:%x[1,1]
+U13:%x[-1,1]/%x[0,1]
+
+# Bigram: tag transitions
+B

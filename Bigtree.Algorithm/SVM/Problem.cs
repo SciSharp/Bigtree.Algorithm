@@ -92,6 +92,72 @@ namespace Bigtree.Algorithm.SVM
         }
 
         /// <summary>
+        ///     Builds a problem from a dense NumSharp sample matrix and its labels (or regression targets), with
+        ///     libsvm's 1-based feature indices: column <c>j</c> of <paramref name="X"/> becomes feature <c>j + 1</c>.
+        /// </summary>
+        /// <param name="X">The samples, shape (samples, features); any numeric dtype, read as float64.</param>
+        /// <param name="y">One label (classification) or target value (regression) per sample, numeric.</param>
+        /// <returns>
+        ///     A problem whose every sample lists all its features, zeros included, so <see cref="RangeTransform"/>
+        ///     scales every feature of every sample (libsvm's sparse format would drop zeros, which scaling then never
+        ///     reaches). <see cref="MaxIndex"/> is the feature count.
+        /// </returns>
+        /// <remarks>
+        ///     One bulk copy reads the matrix out of NumSharp; the <see cref="Node"/> rows are the solver's own sparse
+        ///     format. <see cref="Prediction.PredictLabels(Model, NumSharp.NDArray)"/> and
+        ///     <see cref="Prediction.DecisionValues(Model, NumSharp.NDArray)"/> read query matrices with the same
+        ///     column-to-index rule.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="X"/> or <paramref name="y"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">
+        ///     <paramref name="X"/> is not a finite 2-D array, or <paramref name="y"/>'s length differs from the sample count.
+        /// </exception>
+        public static Problem FromNDArray(NumSharp.NDArray X, NumSharp.NDArray y)
+        {
+            var problem = new Problem();
+            problem.Read(X, y);
+            return problem;
+        }
+
+        /// <summary>
+        ///     The body of <see cref="FromNDArray"/>: validates the arrays and fills this problem's
+        ///     <see cref="Count"/>, <see cref="Y"/>, <see cref="X"/> and <see cref="MaxIndex"/> from them.
+        /// </summary>
+        /// <param name="X">The samples (see <see cref="FromNDArray"/>).</param>
+        /// <param name="y">One label or target value per sample.</param>
+        /// <remarks>
+        ///     Every NumSharp temporary returns to the pool when the woven scope closes. <c>[NDScoped]</c> cannot sit on
+        ///     <see cref="FromNDArray"/> itself: the weaver refuses a method returning a reference type that is not an
+        ///     NDArray carrier (NDW003), and it returns the problem.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="X"/> or <paramref name="y"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">See <see cref="FromNDArray"/>.</exception>
+        [NumSharp.NDScoped]
+        private void Read(NumSharp.NDArray X, NumSharp.NDArray y)
+        {
+            NumSharp.NDArray samples = Internal.NDHelpers.Float64Matrix(X, nameof(X));
+            NumSharp.NDArray targets = Internal.NDHelpers.Targets(y, samples.shape[0], nameof(y));
+            int rows = (int)samples.shape[0], features = (int)samples.shape[1];
+
+            // ToArray copies the (possibly strided) matrix out in row-major order in one pass.
+            double[] values = samples.ToArray<double>();
+            var nodes = new Node[rows][];
+            for (int i = 0; i < rows; i++)
+            {
+                var row = new Node[features];
+                for (int j = 0; j < features; j++)
+                    row[j] = new Node(j + 1, values[(long)i * features + j]);
+                nodes[i] = row;
+            }
+
+            // this. because the parameters X and y shadow the properties X (and read like Y).
+            this.Count = rows;
+            this.Y = targets.astype(NumSharp.np.float64).ToArray<double>();
+            this.X = nodes;
+            this.MaxIndex = features;
+        }
+
+        /// <summary>
         /// Reads a problem from a stream.
         /// </summary>
         /// <param name="stream">Stream to read from</param>

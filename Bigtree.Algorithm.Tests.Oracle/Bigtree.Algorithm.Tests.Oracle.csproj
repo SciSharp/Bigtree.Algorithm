@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MSTest" Version="3.8.3" />
+    <PackageReference Include="NumSharp.Interop.pythonnet" Version="0.80.0" />
+    <!-- Build-time only: weaves the tests' [NDScoped] methods, so each test's NDArrays return to NumSharp's pool. -->
+    <PackageReference Include="NumSharp.Build" Version="0.80.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bigtree.Algorithm\Bigtree.Algorithm.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\data\seeds_dataset.csv" Link="data\seeds_dataset.csv" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Bigtree.Algorithm.UnitTest\data\DecisionTree.csv" Link="data\DecisionTree.csv" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

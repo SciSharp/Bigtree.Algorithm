@@ -1,0 +1,287 @@
+﻿/*
+ * Bigtree.Algorithm
+ * Copyright (C) 2018 Haiping Chen
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+using Bigtree.Algorithm.Statistics;
+using NumSharp;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
+
+namespace Bigtree.Algorithm.Bayes
+{
+    /// <summary>
+    ///     Naive Bayes over labelled feature vectors: the prior of a label, the smoothed probability that feature
+    ///     <c>x</c> takes a given value within a label, and the posterior that combines them.
+    ///     https://en.wikipedia.org/wiki/Bayes%27_theorem
+    /// </summary>
+    /// <remarks>
+    ///     <para><b>How it computes.</b> The conditional probabilities come from one count table per feature value:
+    ///     <c>counts[label, x]</c> = the samples of that label whose feature <c>x</c> equals the value, counted in one
+    ///     SIMD pass over the vectors of <see cref="FeatureSet"/> (no copy of them), built the first time
+    ///     <see cref="CalCondProb"/> asks for that value and reused for every later call; NumSharp turns the table
+    ///     into smoothed log-probabilities. Bigtree 0.4.0 filtered the feature set and copied the label's rows into a
+    ///     fresh matrix on every call, which made a full training pass (every label × feature × value) cost
+    ///     O(labels · rows · features²); it now reads each value's samples once, and each call is a table lookup. The
+    ///     numbers are the same to the last bit: the counts are exact integers in float64 and the smoothing formula is
+    ///     evaluated in the same order.</para>
+    ///     <para><b>Footgun: the tables follow the list, not its contents.</b> They are rebuilt when
+    ///     <see cref="FeatureSet"/> is assigned another list or its <c>Count</c> changes. Editing a row's vector (or
+    ///     swapping one row for another) in place after the first <see cref="CalCondProb"/> call is not seen: assign
+    ///     a new list instead.</para>
+    ///     <para>Safe to call from several threads at once as long as nobody modifies <see cref="FeatureSet"/>: the
+    ///     tables are built under a lock.</para>
+    /// </remarks>
+    public class MultinomialNaiveBayes
+    {
+        /// <summary>
+        ///     The labels and how often each occurs. Read by <see cref="CalPriorProb"/> only; the conditional
+        ///     probabilities take their label counts from <see cref="FeatureSet"/>.
+        /// </summary>
+        public List<Probability> LabelDist { get; set; }
+
+        /// <summary>
+        ///     The training samples: each item is a label and the sample's feature vector. Every vector must have the
+        ///     same length (the feature count).
+        /// </summary>
+        public List<Tuple<string, double[]>> FeatureSet { get; set; }
+
+        /// <summary>
+        ///     The additive (Lidstone) smoothing added to every count by <see cref="CalPriorProb"/> and
+        ///     <see cref="CalCondProb"/>. Fixed at construction: the cached tables assume it never changes.
+        /// </summary>
+        private double alpha { get; set; }
+
+        /// <summary>Guards the count tables below, which <see cref="CalCondProb"/> builds lazily.</summary>
+        private readonly object _sync = new object();
+
+        /// <summary>The <see cref="FeatureSet"/> instance the tables were counted from; <c>null</c> before the first count.</summary>
+        private List<Tuple<string, double[]>> _countedSet;
+
+        /// <summary>The <see cref="FeatureSet"/> row count when the tables were counted, to notice an Add or Remove.</summary>
+        private int _countedRows;
+
+        /// <summary>Label to row of the tables (labels in ascending ordinal order, as <c>np.unique</c> sorts text).</summary>
+        private Dictionary<string, int> _labelRow;
+
+        /// <summary>The number of samples of each label, indexed by table row.</summary>
+        private double[] _labelRows;
+
+        /// <summary>The label index (table row) of every sample of the counted set, in <see cref="FeatureSet"/> order.</summary>
+        private long[] _codes;
+
+        /// <summary>The feature count shared by every vector of the counted set.</summary>
+        private int _features;
+
+        /// <summary>
+        ///     Per feature value: the log-probabilities <c>log((n[label, x] + alpha) / (n[label] + n[label] * alpha))</c>,
+        ///     row-major (label, feature).
+        /// </summary>
+        private readonly Dictionary<double, double[]> _logCondByValue = new Dictionary<double, double[]>();
+
+        /// <summary>Creates the classifier.</summary>
+        /// <param name="alpha">
+        ///     The additive smoothing added to every count (Lidstone; 1 = Laplace). With 0 a value never seen within a
+        ///     label has probability 0 and log-probability negative infinity.
+        /// </param>
+        public MultinomialNaiveBayes(double alpha = 0.5)
+        {
+            this.alpha = alpha;
+        }
+
+        /// <summary>
+        ///     The smoothed prior probability of a label: <c>(N_y + alpha) / (N + k * alpha)</c>, with <c>N_y</c> the
+        ///     label's frequency in <see cref="LabelDist"/>, <c>N</c> the number of samples in <see cref="FeatureSet"/>
+        ///     and <c>k</c> the number of labels in <see cref="LabelDist"/>.
+        /// </summary>
+        /// <param name="Y">The label.</param>
+        /// <returns>The prior probability of <paramref name="Y"/>.</returns>
+        /// <exception cref="InvalidOperationException"><paramref name="Y"/> is not in <see cref="LabelDist"/>.</exception>
+        public double CalPriorProb(string Y)
+        {
+            int N = FeatureSet.Count;
+            int k = LabelDist.Count;
+            int Nyk = LabelDist.First(x => x.Value == Y).Freq;
+
+            return (Nyk + alpha) / (N + k * alpha);
+        }
+
+        /// <summary>
+        ///     The natural log of the smoothed probability that feature <paramref name="x"/> equals
+        ///     <paramref name="feature"/> among the samples labelled <paramref name="Y"/>:
+        ///     <c>log((n_yx + alpha) / (n_y + n_y * alpha))</c>, where <c>n_y</c> counts the samples labelled
+        ///     <paramref name="Y"/> and <c>n_yx</c> those of them whose feature <paramref name="x"/> equals
+        ///     <paramref name="feature"/> exactly.
+        /// </summary>
+        /// <param name="x">The feature index, 0-based.</param>
+        /// <param name="Y">The label; it must occur in <see cref="FeatureSet"/>.</param>
+        /// <param name="feature">The feature value. A value that never occurs counts 0.</param>
+        /// <returns>The log-probability (bit-identical to Bigtree 0.4.0's, which rebuilt the label's matrix per call).</returns>
+        /// <remarks>
+        ///     The first call for a given <paramref name="feature"/> value counts the whole <see cref="FeatureSet"/>
+        ///     in one pass (see the class remarks); later calls for that value are a table lookup.
+        /// </remarks>
+        /// <exception cref="ArgumentOutOfRangeException">
+        ///     <paramref name="Y"/> labels no sample, or <paramref name="x"/> is not a feature index.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        ///     <see cref="FeatureSet"/> is empty, its vectors differ in length, or a sample's label is null.
+        /// </exception>
+        /// <exception cref="OverflowException">labels × features exceeds the largest .NET array.</exception>
+        public double CalCondProb(int x, string Y, double feature)
+        {
+            double[] table;
+            int row;
+            lock (_sync)
+            {
+                CountLabels();
+                if (!_labelRow.TryGetValue(Y, out row))
+                    throw new ArgumentOutOfRangeException(nameof(Y), Y, "No sample in FeatureSet has this label.");
+                if (x < 0 || x >= _features)
+                    throw new ArgumentOutOfRangeException(nameof(x), x, $"The feature vectors have {_features} features.");
+                if (!_logCondByValue.TryGetValue(feature, out table))
+                {
+                    CountValue(feature);
+                    table = _logCondByValue[feature];
+                }
+            }
+
+            return table[row * _features + x];
+        }
+
+        /// <summary>
+        /// calculate posterior probability P(Y|X)
+        /// X is feature set, Y is label
+        /// P(X1,...,Xn|Y) = Sum(P(X1|Y) +...+ P(Xn|Y)
+        /// P(X, Y) = P(Y|X)P(X) = P(X|Y)P(Y) => P(Y|X) = P(Y)P(X|Y)/P(X)
+        /// </summary>
+        /// <param name="Y">The label.</param>
+        /// <param name="features">The sample's feature vector; only the features equal to 1 contribute.</param>
+        /// <param name="priorProb">The label's prior probability (see <see cref="CalPriorProb"/>).</param>
+        /// <param name="condProbDictionary">
+        ///     The conditional log-probabilities, keyed <c>"{Y} f{x} {value}"</c> as CherubNLP builds them from
+        ///     <see cref="CalCondProb"/>.
+        /// </param>
+        /// <returns><c>2^(log(priorProb) + sum of the log-probabilities of the features equal to 1)</c>.</returns>
+        /// <exception cref="KeyNotFoundException">A feature equal to 1 has no entry in <paramref name="condProbDictionary"/>.</exception>
+        public double CalPosteriorProb(string Y, double[] features, double priorProb, Dictionary<string, double> condProbDictionary)
+        {
+            int featureCount = features.Length;
+
+            double postProb = Math.Log(priorProb);
+
+            // loop features
+            for (int x = 0; x < featureCount; x++)
+            {
+                // Only a feature equal to 1 reads the dictionary, so build its key only then: 0.4.0 formatted a key
+                // for every feature first, which made this loop allocate one string per feature per label.
+                if(features[x] == 1)
+                {
+                    string key = $"{Y} f{x} {features[x]}";
+                    postProb += condProbDictionary[key];
+                }
+            }
+
+            return Math.Pow(2, postProb);
+        }
+
+        /// <summary>
+        ///     (Re)counts the labels of <see cref="FeatureSet"/> when it is another list than the one counted, or its
+        ///     row count changed, and drops the value tables of the previous set. Runs under <see cref="_sync"/>.
+        /// </summary>
+        /// <exception cref="ArgumentException">The set is empty, its vectors differ in length, or a sample's label is null.</exception>
+        [NDScoped]
+        private void CountLabels()
+        {
+            if (ReferenceEquals(_countedSet, FeatureSet) && _countedRows == FeatureSet.Count)
+                return;
+
+            if (FeatureSet.Count == 0)
+                throw new ArgumentException("FeatureSet holds no samples.", nameof(FeatureSet));
+            int features = FeatureSet[0].Item2.Length;
+            if (FeatureSet.Any(sample => sample.Item2.Length != features))
+                throw new ArgumentException($"Every feature vector must have {features} features, as the first one has.", nameof(FeatureSet));
+
+            var sampleLabels = new string[FeatureSet.Count];
+            for (int i = 0; i < sampleLabels.Length; i++)
+                sampleLabels[i] = FeatureSet[i].Item1 ?? throw new ArgumentException($"FeatureSet[{i}] has no label.", nameof(FeatureSet));
+            // np.unique sorts the text labels and numbers each sample's label by its rank: the table rows. The text array
+            // is sized up front (NDHelpers.Text): np.array(string[]) would discover its dtype one label at a time.
+            var labels = np.unique(Internal.NDHelpers.Text(sampleLabels), return_inverse: true, return_counts: true);
+            string[] names = Internal.NDHelpers.Strings(labels.values);
+            _labelRow = new Dictionary<string, int>(names.Length);
+            for (int i = 0; i < names.Length; i++)
+                _labelRow[names[i]] = i;
+            _labelRows = labels.counts.astype(np.float64).ToArray<double>();
+            _codes = labels.inverse_indices.ToArray<long>();
+            _features = features;
+            _logCondByValue.Clear();
+            _countedSet = FeatureSet;
+            _countedRows = FeatureSet.Count;
+        }
+
+        /// <summary>
+        ///     Counts, for every label and feature at once, the samples whose feature equals <paramref name="feature"/>,
+        ///     turns the counts into smoothed log-probabilities and caches them in <see cref="_logCondByValue"/> under
+        ///     that value. Runs under <see cref="_sync"/>, after <see cref="CountLabels"/>.
+        /// </summary>
+        /// <param name="feature">The feature value to count (IEEE equality: -0 counts as 0, NaN matches nothing).</param>
+        /// <exception cref="OverflowException">labels × features exceeds the largest .NET array.</exception>
+        /// <remarks>
+        ///     <para>The count reads every sample's own vector once, comparing a SIMD vector of features at a time and
+        ///     adding the matches into the label's row of one (labels × features) table. An earlier NumSharp formulation
+        ///     (<c>onehot(labels).T @ (X == value)</c>) had to copy the jagged <see cref="FeatureSet"/> into a flat
+        ///     array, then into an NDArray, then a mask and its float64 copy: four (samples × features) temporaries per
+        ///     value, 1.36 GB at 20,000 × 2,000 to produce a 5 × 2,000 table. NumSharp keeps the smoothing and the
+        ///     logarithm, on the small table only, so the bits are what they were.</para>
+        ///     <para>It stores the table instead of returning it: NumSharp.Build 0.80.0's weaver refuses
+        ///     <c>[NDScoped]</c> on a method that returns a managed array, even one of doubles that cannot hold an NDArray
+        ///     (NDW003; pinned as an open bug in NumSharp). Every NDArray below is a temporary of the woven scope.</para>
+        /// </remarks>
+        [NDScoped]
+        private void CountValue(double feature)
+        {
+            int samples = _countedSet.Count, labels = _labelRows.Length, features = _features;
+            var hits = new long[checked(labels * features)];
+            var target = new Vector<double>(feature);
+            int width = Vector<double>.Count;
+            for (int i = 0; i < samples; i++)
+            {
+                double[] vector = _countedSet[i].Item2;
+                Span<long> row = hits.AsSpan((int)_codes[i] * features, features);
+                int x = 0;
+                // Vector.Equals sets a matching lane to all ones, -1 as a long: subtracting the mask adds 1 per match.
+                for (; x <= features - width; x += width)
+                {
+                    Span<long> lanes = row.Slice(x, width);
+                    (new Vector<long>(lanes) - Vector.Equals(new Vector<double>(vector, x), target)).CopyTo(lanes);
+                }
+                for (; x < features; x++)
+                    if (vector[x] == feature)
+                        row[x]++;
+            }
+
+            // Integer counts below 2^53 are exact in float64.
+            NDArray counts = np.array(hits).astype(np.float64).reshape(labels, features);
+            NDArray n = np.array(_labelRows).reshape(labels, 1);
+            // The same operations, in the same order, as 0.4.0's Math.Log((Nykx + alpha) / (Nyk + n * alpha)).
+            NDArray logCond = np.log((counts + alpha) / (n + n * alpha));
+            _logCondByValue[feature] = logCond.ToArray<double>();
+        }
+    }
+}

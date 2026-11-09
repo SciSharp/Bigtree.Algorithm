@@ -17,6 +17,21 @@ namespace Bigtree.Algorithm.UnitTest.MathFunctions
             Assert.IsTrue(0 < y && y < 1);
         }
 
+        /// <summary>The NDArray sigmoid and its derivative agree with the scalar functions element by element.</summary>
+        [TestMethod]
+        [NumSharp.NDScoped]
+        public void ArraySigmoidMatchesScalar()
+        {
+            double[] inputs = { -30, -2.5, -0.1, 0, 0.1, 2.5, 30 };
+            NumSharp.NDArray y = Function.Sigmoid(NumSharp.np.array(inputs), coefficient: 1.5);
+            NumSharp.NDArray dy = Function.SigmoidDerivative(y);
+            for (int i = 0; i < inputs.Length; i++)
+            {
+                Assert.AreEqual(Function.Sigmoid(inputs[i], 1.5), y.GetDouble(i), 1e-15);
+                Assert.AreEqual(Function.SigmoidDerivative(Function.Sigmoid(inputs[i], 1.5)), dy.GetDouble(i), 1e-15);
+            }
+        }
+
         public void CudaTest()
         {
             int n = 10;

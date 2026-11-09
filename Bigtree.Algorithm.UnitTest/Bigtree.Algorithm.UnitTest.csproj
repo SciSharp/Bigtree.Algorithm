@@ -1,26 +1,26 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.1</TargetFramework>
-
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
-
     <Configurations>Debug;Release</Configurations>
-
     <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MatplotlibCS" Version="1.0.63" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="2.2.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="2.2.0" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="15.9.0" />
-    <PackageReference Include="MSTest.TestAdapter" Version="1.4.0" />
-    <PackageReference Include="MSTest.TestFramework" Version="1.4.0" />
+    <PackageReference Include="MSTest" Version="3.8.3" />
+    <!-- Build-time only: weaves the tests' [NDScoped] methods, so each test's NDArrays return to NumSharp's pool. -->
+    <PackageReference Include="NumSharp.Build" Version="0.80.0" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Bigtree.Algorithm\Bigtree.Algorithm.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The seeds dataset lives at the repository root (the examples read it too); the tests read it as data/. -->
+    <None Include="..\data\seeds_dataset.csv" Link="data\seeds_dataset.csv" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="data\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

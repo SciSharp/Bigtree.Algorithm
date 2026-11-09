@@ -71,7 +71,7 @@ namespace MNIST.IO
 
                         for(var i=0; i< total; i++)
                         {
-                            var nd = np.zeros(rowCount, colCount);
+                            var nd = np.zeros(new Shape(rowCount, colCount));
 
                             for(var r=0; r<rowCount; r++)
                                 for(var c=0; c<colCount; c++)

@@ -33,8 +33,8 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
                 .Select(g => new Probability { Value = g.Key, Freq = g.Count() })
                 .OrderBy(p => p.Value).ToList();
 
-            var current = new MultinomiaNaiveBayes { LabelDist = labelDist, FeatureSet = featureSet };
-            var legacy = new LegacyMultinomiaNaiveBayes { LabelDist = labelDist, FeatureSet = featureSet };
+            var current = new MultinomialNaiveBayes { LabelDist = labelDist, FeatureSet = featureSet };
+            var legacy = new LegacyMultinomialNaiveBayes { LabelDist = labelDist, FeatureSet = featureSet };
 
             var condProb = new Dictionary<string, double>();
             foreach (var label in labelDist)
@@ -68,8 +68,8 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
                 .Select(i => new Tuple<string, double[]>(i % 3 == 0 ? "a" : "b",
                     Enumerable.Range(0, 6).Select(f => (double)random.Next(4)).ToArray()))
                 .ToList();
-            var current = new MultinomiaNaiveBayes(alpha: 1.0) { FeatureSet = featureSet };
-            var legacy = new LegacyMultinomiaNaiveBayes(alpha: 1.0) { FeatureSet = featureSet };
+            var current = new MultinomialNaiveBayes(alpha: 1.0) { FeatureSet = featureSet };
+            var legacy = new LegacyMultinomialNaiveBayes(alpha: 1.0) { FeatureSet = featureSet };
 
             foreach (string label in new[] { "a", "b" })
                 for (int x = 0; x < 6; x++)
@@ -91,8 +91,8 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
                 .Select(i => new Tuple<string, double[]>("c" + random.Next(3),
                     Enumerable.Range(0, 37).Select(f => palette[random.Next(palette.Length)]).ToArray()))
                 .ToList();
-            var current = new MultinomiaNaiveBayes(alpha: 0.5) { FeatureSet = featureSet };
-            var legacy = new LegacyMultinomiaNaiveBayes(alpha: 0.5) { FeatureSet = featureSet };
+            var current = new MultinomialNaiveBayes(alpha: 0.5) { FeatureSet = featureSet };
+            var legacy = new LegacyMultinomialNaiveBayes(alpha: 0.5) { FeatureSet = featureSet };
 
             foreach (string label in featureSet.Select(sample => sample.Item1).Distinct())
                 for (int x = 0; x < 37; x++)
@@ -105,7 +105,7 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
         [TestMethod]
         public void Multinomial_RecountsANewFeatureSet()
         {
-            var nb = new MultinomiaNaiveBayes(alpha: 1.0)
+            var nb = new MultinomialNaiveBayes(alpha: 1.0)
             {
                 FeatureSet = new List<Tuple<string, double[]>> { Tuple.Create("a", new[] { 1.0 }), Tuple.Create("a", new[] { 0.0 }) },
             };
@@ -122,7 +122,7 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
         [TestMethod]
         public void Multinomial_RefusesBadInput()
         {
-            var nb = new MultinomiaNaiveBayes
+            var nb = new MultinomialNaiveBayes
             {
                 FeatureSet = new List<Tuple<string, double[]>> { Tuple.Create("a", new[] { 1.0, 0.0 }) },
             };
@@ -294,7 +294,7 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
         ///     Bigtree 0.4.0's <c>MultinomiaNaiveBayes</c>, copied verbatim (commit dfb20dd): the reference the
         ///     vectorized implementation must reproduce bit for bit.
         /// </summary>
-        private sealed class LegacyMultinomiaNaiveBayes
+        private sealed class LegacyMultinomialNaiveBayes
         {
             /// <summary>The labels and their frequencies.</summary>
             public List<Probability> LabelDist { get; set; }
@@ -307,7 +307,7 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
 
             /// <summary>Creates the reference classifier.</summary>
             /// <param name="alpha">The additive smoothing.</param>
-            public LegacyMultinomiaNaiveBayes(double alpha = 0.5) { this.alpha = alpha; }
+            public LegacyMultinomialNaiveBayes(double alpha = 0.5) { this.alpha = alpha; }
 
             /// <summary>0.4.0's prior.</summary>
             /// <param name="Y">The label.</param>

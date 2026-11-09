@@ -12,7 +12,7 @@ net10.0).
 | KNN | `KNN.KnnModel` | distance matrix by one matrix product, `np.argpartition`, one-hot votes |
 | Decision Tree | `DecisionTree.Tree` | ID3; each column encoded once by `np.unique` over a NumSharp text array, the tree grown over the integer codes |
 | HMM (Hidden Markov Model) | `HiddenMarkovModel.*` | forward/backward/Viterbi; Baum-Welch on Rabiner's scaled forward-backward |
-| Bayes | `Bayes.GaussianNaiveBayes`, `BernoulliNaiveBayes`, `MultinomiaNaiveBayes` | per-class reductions and matrix products; the multinomial one counts each feature value in one SIMD pass over its samples' vectors |
+| Bayes | `Bayes.GaussianNaiveBayes`, `BernoulliNaiveBayes`, `MultinomialNaiveBayes` | per-class reductions and matrix products; the multinomial one counts each feature value in one SIMD pass over its samples' vectors |
 | Linear Regression | `LinearRegression.LinearRegressionModel` | centered normal equations solved by `np.linalg.solve` (managed) |
 | Artificial Neural Network | `NeuralNetwork.NetworkModel` | one weight matrix per layer, mini-batch backpropagation as matrix products and compiled `NDExpr` programs |
 
@@ -114,8 +114,10 @@ a linear regression fit of 200,000 × 100 at 277 MB instead of 385 MB (160 MB of
 ### Changes from 0.4.0
 
 - net8.0 / net10.0 and NumSharp 0.80.0 (from netstandard2.0 and NumSharp 0.30.0).
-- `MultinomiaNaiveBayes`, the SVM types, `Probability`, `Feature`, `CRFLite` and the `Shuffle` / `Split` extensions
-  keep their API (CherubNLP compiles unchanged once it targets net8.0).
+- `MultinomiaNaiveBayes` and `MultinomiaNaiveBayesModel` are spelled `MultinomialNaiveBayes` and
+  `MultinomialNaiveBayesModel`; their members, the SVM types, `Probability`, `Feature`, `CRFLite` and the `Shuffle` /
+  `Split` extensions keep their API. CherubNLP compiles once it targets net8.0 and uses the two new names (three lines);
+  its saved JSON models load unchanged (the property names did not change).
 - `NetworkModel` holds weight matrices: `Neuron` and `Dendrite` are gone, `NeuralLayer` is `(Count, Name)`,
   `Train` takes a `batchSize`, `Build` a `seed`. Its two backpropagation bugs are fixed.
 - `Utils.CrossValFolds(N, n_folds, seed)` returns `NDArray[]` folds (0.4.0 returned none); `ReadCsv` numbers labels in

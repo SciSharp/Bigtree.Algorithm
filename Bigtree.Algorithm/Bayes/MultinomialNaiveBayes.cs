@@ -47,7 +47,7 @@ namespace Bigtree.Algorithm.Bayes
     ///     <para>Safe to call from several threads at once as long as nobody modifies <see cref="FeatureSet"/>: the
     ///     tables are built under a lock.</para>
     /// </remarks>
-    public class MultinomiaNaiveBayes
+    public class MultinomialNaiveBayes
     {
         /// <summary>
         ///     The labels and how often each occurs. Read by <see cref="CalPriorProb"/> only; the conditional
@@ -99,7 +99,7 @@ namespace Bigtree.Algorithm.Bayes
         ///     The additive smoothing added to every count (Lidstone; 1 = Laplace). With 0 a value never seen within a
         ///     label has probability 0 and log-probability negative infinity.
         /// </param>
-        public MultinomiaNaiveBayes(double alpha = 0.5)
+        public MultinomialNaiveBayes(double alpha = 0.5)
         {
             this.alpha = alpha;
         }

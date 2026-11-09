@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Bigtree.Algorithm.Bayes
 {
-    public class MultinomiaNaiveBayesModel
+    public class MultinomialNaiveBayesModel
     {
         public List<Probability> LabelDist { get; set; }
 

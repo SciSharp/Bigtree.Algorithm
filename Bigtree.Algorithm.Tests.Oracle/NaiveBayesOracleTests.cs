@@ -126,7 +126,7 @@ namespace Bigtree.Algorithm.Tests.Oracle
                 var featureSet = Enumerable.Range(0, 300)
                     .Select(i => Tuple.Create("c" + labels[i], flat.Skip(i * 50).Take(50).ToArray()))
                     .ToList();
-                var nb = new MultinomiaNaiveBayes(alpha: 0.5) { FeatureSet = featureSet };
+                var nb = new MultinomialNaiveBayes(alpha: 0.5) { FeatureSet = featureSet };
 
                 var actual = new double[4 * 50 * 2];
                 for (int c = 0; c < 4; c++)

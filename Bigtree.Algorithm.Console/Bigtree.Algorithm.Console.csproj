@@ -7,6 +7,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Bigtree.Algorithm\Bigtree.Algorithm.csproj" />
+    <!-- Build-time only: weaves Main's [NDScoped], so the tour's NDArrays return to NumSharp's pool. -->
+    <PackageReference Include="NumSharp.Build" Version="0.80.0" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

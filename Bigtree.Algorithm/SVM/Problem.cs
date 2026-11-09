@@ -114,7 +114,27 @@ namespace Bigtree.Algorithm.SVM
         /// </exception>
         public static Problem FromNDArray(NumSharp.NDArray X, NumSharp.NDArray y)
         {
-            using var scope = NumSharp.NDScope.Open();
+            var problem = new Problem();
+            problem.Read(X, y);
+            return problem;
+        }
+
+        /// <summary>
+        ///     The body of <see cref="FromNDArray"/>: validates the arrays and fills this problem's
+        ///     <see cref="Count"/>, <see cref="Y"/>, <see cref="X"/> and <see cref="MaxIndex"/> from them.
+        /// </summary>
+        /// <param name="X">The samples (see <see cref="FromNDArray"/>).</param>
+        /// <param name="y">One label or target value per sample.</param>
+        /// <remarks>
+        ///     Every NumSharp temporary returns to the pool when the woven scope closes. <c>[NDScoped]</c> cannot sit on
+        ///     <see cref="FromNDArray"/> itself: the weaver refuses a method returning a reference type that is not an
+        ///     NDArray carrier (NDW003), and it returns the problem.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="X"/> or <paramref name="y"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">See <see cref="FromNDArray"/>.</exception>
+        [NumSharp.NDScoped]
+        private void Read(NumSharp.NDArray X, NumSharp.NDArray y)
+        {
             NumSharp.NDArray samples = Internal.NDHelpers.Float64Matrix(X, nameof(X));
             NumSharp.NDArray targets = Internal.NDHelpers.Targets(y, samples.shape[0], nameof(y));
             int rows = (int)samples.shape[0], features = (int)samples.shape[1];
@@ -130,7 +150,11 @@ namespace Bigtree.Algorithm.SVM
                 nodes[i] = row;
             }
 
-            return new Problem(rows, targets.astype(NumSharp.np.float64).ToArray<double>(), nodes, features);
+            // this. because the parameters X and y shadow the properties X (and read like Y).
+            this.Count = rows;
+            this.Y = targets.astype(NumSharp.np.float64).ToArray<double>();
+            this.X = nodes;
+            this.MaxIndex = features;
         }
 
         /// <summary>

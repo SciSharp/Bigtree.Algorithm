@@ -155,7 +155,10 @@ namespace Bigtree.Algorithm.Bayes
                 if (x < 0 || x >= _features)
                     throw new ArgumentOutOfRangeException(nameof(x), x, $"The feature vectors have {_features} features.");
                 if (!_logCondByValue.TryGetValue(feature, out table))
-                    _logCondByValue[feature] = table = CountValue(feature);
+                {
+                    CountValue(feature);
+                    table = _logCondByValue[feature];
+                }
             }
 
             return table[row * _features + x];
@@ -234,25 +237,25 @@ namespace Bigtree.Algorithm.Bayes
 
         /// <summary>
         ///     Counts, for every label and feature at once, the samples whose feature equals <paramref name="feature"/>,
-        ///     and turns the counts into smoothed log-probabilities. Runs under <see cref="_sync"/>, after
-        ///     <see cref="CountLabels"/>.
+        ///     turns the counts into smoothed log-probabilities and caches them in <see cref="_logCondByValue"/> under
+        ///     that value. Runs under <see cref="_sync"/>, after <see cref="CountLabels"/>.
         /// </summary>
         /// <param name="feature">The feature value to count (IEEE equality: -0 counts as 0, NaN matches nothing).</param>
-        /// <returns>The (labels, features) log-probabilities, row-major.</returns>
         /// <exception cref="OverflowException">labels × features exceeds the largest .NET array.</exception>
         /// <remarks>
-        ///     The count reads every sample's own vector once, comparing a SIMD vector of features at a time and adding
-        ///     the matches into the label's row of one (labels × features) table. An earlier NumSharp formulation
+        ///     <para>The count reads every sample's own vector once, comparing a SIMD vector of features at a time and
+        ///     adding the matches into the label's row of one (labels × features) table. An earlier NumSharp formulation
         ///     (<c>onehot(labels).T @ (X == value)</c>) had to copy the jagged <see cref="FeatureSet"/> into a flat
         ///     array, then into an NDArray, then a mask and its float64 copy: four (samples × features) temporaries per
         ///     value, 1.36 GB at 20,000 × 2,000 to produce a 5 × 2,000 table. NumSharp keeps the smoothing and the
-        ///     logarithm, on the small table only, so the bits are what they were.
+        ///     logarithm, on the small table only, so the bits are what they were.</para>
+        ///     <para>It stores the table instead of returning it: NumSharp.Build 0.80.0's weaver refuses
+        ///     <c>[NDScoped]</c> on a method that returns a managed array, even one of doubles that cannot hold an NDArray
+        ///     (NDW003; pinned as an open bug in NumSharp). Every NDArray below is a temporary of the woven scope.</para>
         /// </remarks>
-        private double[] CountValue(double feature)
+        [NDScoped]
+        private void CountValue(double feature)
         {
-            // Scoped by hand: every array below is a temporary, and the weaver refuses [NDScoped] on a method that
-            // returns a managed array (NDW003), even one of doubles that cannot hold an NDArray.
-            using var scope = NDScope.Open();
             int samples = _countedSet.Count, labels = _labelRows.Length, features = _features;
             var hits = new long[checked(labels * features)];
             var target = new Vector<double>(feature);
@@ -278,7 +281,7 @@ namespace Bigtree.Algorithm.Bayes
             NDArray n = np.array(_labelRows).reshape(labels, 1);
             // The same operations, in the same order, as 0.4.0's Math.Log((Nykx + alpha) / (Nyk + n * alpha)).
             NDArray logCond = np.log((counts + alpha) / (n + n * alpha));
-            return logCond.ToArray<double>();
+            _logCondByValue[feature] = logCond.ToArray<double>();
         }
     }
 }

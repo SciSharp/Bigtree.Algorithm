@@ -173,11 +173,11 @@ namespace Bigtree.Algorithm.SVM
         /// <exception cref="ArgumentException"><paramref name="X"/> is not a finite 2-D array.</exception>
         /// <exception cref="NotSupportedException">The model uses a precomputed kernel, which has no feature matrix to compute from.</exception>
         /// <exception cref="InvalidOperationException">A support vector has feature index 0, i.e. the model was trained on 0-based features; use the <see cref="Node"/> API for it.</exception>
+        [NDScoped]
         public static NDArray DecisionValues(this Model model, NDArray X)
         {
             if (model is null)
                 throw new ArgumentNullException(nameof(model));
-            using var scope = NDScope.Open();
             NDArray samples = NDHelpers.Float64Matrix(X, nameof(X));
             NDArray supportVectors = DenseSupportVectors(model, (int)samples.shape[1]);
             if (supportVectors.shape[1] > samples.shape[1])
@@ -197,20 +197,34 @@ namespace Bigtree.Algorithm.SVM
                 (weights, offsets) = PairWeights(model);
             }
 
-            // A block of rows at a time, each in its own scope: the (block, support vectors) kernel dies before the next
-            // block allocates its own, so memory stays at one block whatever the batch size (20,000 rows x 1,960
-            // support vectors computed at once peaked at 695 MB).
+            // A block of rows at a time (DecisionBlock, each in its own woven scope), so memory stays at one block
+            // whatever the batch size (20,000 rows x 1,960 support vectors computed at once peaked at 695 MB).
             long rows = samples.shape[0];
             long blockRows = Math.Max(1, BlockElements / Math.Max(1, model.SupportVectorCount));
             NDArray result = single ? np.empty(new Shape(rows)) : np.empty(new Shape(rows, offsets.size));
             for (long start = 0; start < rows; start += blockRows)
-            {
-                using var block = NDScope.Open();
-                string range = $"{start}:{Math.Min(start + blockRows, rows)}";
-                NDArray kernel = KernelBlock(model.Parameter, samples[range], supportVectors, vectorNorms);
-                result[range] = np.dot(kernel, weights) - offsets;
-            }
-            return scope.Returns(result);
+                DecisionBlock(model.Parameter, samples, $"{start}:{Math.Min(start + blockRows, rows)}", supportVectors, vectorNorms, weights, offsets, result);
+            return result;
+        }
+
+        /// <summary>One block of <see cref="DecisionValues"/>: the block's kernel and decision values, written into the full result.</summary>
+        /// <param name="parameter">The model's kernel parameters.</param>
+        /// <param name="samples">All samples, float64, padded to the support vectors' width.</param>
+        /// <param name="range">The block's rows, in slice notation.</param>
+        /// <param name="supportVectors">The dense support vectors.</param>
+        /// <param name="vectorNorms">Their squared norms (RBF only; null otherwise).</param>
+        /// <param name="weights">The coefficients: (support vectors,) or (support vectors, pairs).</param>
+        /// <param name="offsets">The rho of every decision function.</param>
+        /// <param name="result">The full result; the block's rows are written.</param>
+        /// <remarks>
+        ///     Its own woven scope: the (block, support vectors) kernel dies before the next block allocates its own.
+        /// </remarks>
+        [NDScoped]
+        private static void DecisionBlock(Parameter parameter, NDArray samples, string range, NDArray supportVectors, NDArray vectorNorms,
+            NDArray weights, NDArray offsets, NDArray result)
+        {
+            NDArray kernel = KernelBlock(parameter, samples[range], supportVectors, vectorNorms);
+            result[range] = np.dot(kernel, weights) - offsets;
         }
 
         /// <summary>
@@ -226,7 +240,6 @@ namespace Bigtree.Algorithm.SVM
         /// </summary>
         /// <param name="model">A classification model.</param>
         /// <returns>The weights, and every pair's rho to subtract (pairs,).</returns>
-        [NDScopedCovered]
         private static (NDArray weights, NDArray offsets) PairWeights(Model model)
         {
             // Support vectors are stored grouped by class: class c owns rows start[c] .. start[c] + count[c].
@@ -268,15 +281,15 @@ namespace Bigtree.Algorithm.SVM
         /// <exception cref="ArgumentException"><paramref name="X"/> is not a finite 2-D array.</exception>
         /// <exception cref="NotSupportedException">The model uses a precomputed kernel.</exception>
         /// <exception cref="InvalidOperationException">The model was trained on 0-based features.</exception>
+        [NDScoped]
         public static NDArray PredictLabels(this Model model, NDArray X)
         {
-            using var scope = NDScope.Open();
             NDArray decision = DecisionValues(model, X);
             SvmType type = model.Parameter.SvmType;
             if (type == SvmType.EPSILON_SVR || type == SvmType.NU_SVR)
-                return scope.Returns(decision);
+                return decision;
             if (type == SvmType.ONE_CLASS)
-                return scope.Returns(np.where(decision > 0, 1.0, -1.0));
+                return np.where(decision > 0, 1.0, -1.0);
 
             // dec > 0 votes for the pair's first class i, anything else (0 included) for j: svm_predict_values' rule.
             // With firsts[p, c] = (c == i), seconds[p, c] = (c == j), a sample's votes are
@@ -301,7 +314,7 @@ namespace Bigtree.Algorithm.SVM
 
             // np.argmax takes the first maximum: the vote tie rule of libsvm.
             NDArray labels = np.array(model.ClassLabels.Select(label => (double)label).ToArray());
-            return scope.Returns(labels[np.argmax(votes, axis: 1)]);
+            return labels[np.argmax(votes, axis: 1)];
         }
 
         /// <summary>
@@ -318,18 +331,18 @@ namespace Bigtree.Algorithm.SVM
         /// <exception cref="ArgumentNullException"><paramref name="model"/> or <paramref name="X"/> is <c>null</c>.</exception>
         /// <exception cref="ArgumentException"><paramref name="X"/> is not a finite 2-D array.</exception>
         /// <exception cref="Exception">The model is not a classification model (the message names its type).</exception>
+        [NDScoped]
         public static NDArray PredictLabelsProbability(this Model model, NDArray X)
         {
             if (model is null)
                 throw new ArgumentNullException(nameof(model));
-            using var scope = NDScope.Open();
             Problem rows = Problem.FromNDArray(X, np.zeros(new Shape(X?.shape[0] ?? 0)));
             double[][] probabilities = PredictLabelsProbability(model, rows);
             int classes = model.NumberOfClasses;
             var flat = new double[(long)rows.Count * classes];
             for (int i = 0; i < rows.Count; i++)
                 Array.Copy(probabilities[i], 0, flat, (long)i * classes, classes);
-            return scope.Returns(np.array(flat).reshape(rows.Count, classes));
+            return np.array(flat).reshape(rows.Count, classes);
         }
 
         /// <summary>
@@ -343,7 +356,6 @@ namespace Bigtree.Algorithm.SVM
         /// </returns>
         /// <exception cref="NotSupportedException">The model uses a precomputed kernel.</exception>
         /// <exception cref="InvalidOperationException">A support vector has feature index 0.</exception>
-        [NDScopedCovered]
         private static NDArray DenseSupportVectors(Model model, int columns)
         {
             if (model.Parameter.KernelType == KernelType.PRECOMPUTED)
@@ -375,7 +387,6 @@ namespace Bigtree.Algorithm.SVM
         /// <param name="vectorNorms">The squared norm of every support vector (RBF only, else <c>null</c>).</param>
         /// <returns>A float64 (samples, support vectors) array.</returns>
         /// <exception cref="NotSupportedException">The kernel type is not one of LINEAR, POLY, RBF, SIGMOID.</exception>
-        [NDScopedCovered]
         private static NDArray KernelBlock(Parameter parameter, NDArray samples, NDArray supportVectors, NDArray vectorNorms)
         {
             NDArray dot = np.dot(samples, supportVectors.T);

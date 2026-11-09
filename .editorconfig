@@ -1,5 +1,19 @@
 root = true
 
+# NumSharp's NDArray-ownership analyzer (shipped inside the NumSharp package, so every project here gets it): its four
+# warnings are off everywhere. NDW012 (an NDArray left to the finalizer), NDW016 / NDW017 (a type or member holding
+# NDArrays without disposing them) and NDW020 (culture in exception texts) flag patterns this library uses on purpose:
+# helpers that create temporaries inside a caller's [NDScoped] method, and estimators that own fitted arrays. NDW013
+# (a scope attribute without the weaver) cannot apply: every project that uses [NDScoped] references NumSharp.Build.
+# The analyzer's ERRORS (NDW002 / NDW003 / NDW005 / NDW006 / NDW009 / NDW010 / NDW011 / NDW015) stay: the weaver refuses
+# those shapes at build time anyway.
+[*.cs]
+dotnet_diagnostic.NDW012.severity = none
+dotnet_diagnostic.NDW013.severity = none
+dotnet_diagnostic.NDW016.severity = none
+dotnet_diagnostic.NDW017.severity = none
+dotnet_diagnostic.NDW020.severity = none
+
 # The statistics library under HiddenMarkovModel/MathUtils came with its doc comments as they were (an unescaped
 # '<', <param> tags for parameters that no longer exist, comments above a namespace). Since 0.5.0 the package ships
 # its XML documentation, so the compiler checks every doc comment; these four diagnostics are silenced for that

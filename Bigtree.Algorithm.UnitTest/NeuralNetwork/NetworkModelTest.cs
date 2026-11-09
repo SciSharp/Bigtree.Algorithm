@@ -17,9 +17,9 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
         /// output neurons are the classes false and true.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void TestAndGate()
         {
-            using var scope = NDScope.Open();
             using var model = new NetworkModel();
             model.Layers.Add(new NeuralLayer(3, "INPUT"));
             model.Layers.Add(new NeuralLayer(4, "HIDDEN"));
@@ -38,9 +38,9 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
         ///     loops from the same initial weights: every weight agrees after 50 epochs.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void BatchSizeOneIsPerSampleBackpropagation()
         {
-            using var scope = NDScope.Open();
             np.random.seed(4);
             var X = np.random.rand(12, 3);
             var Y = np.array(new[] { 0, 1, 2, 1, 0, 2, 2, 1, 0, 0, 1, 2 });
@@ -64,9 +64,9 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
 
         /// <summary>A mini-batch update is the mean of its samples' updates at the batch's starting weights.</summary>
         [TestMethod]
+        [NDScoped]
         public void MiniBatchUpdateIsTheMeanOfTheSampleUpdates()
         {
-            using var scope = NDScope.Open();
             var X = np.array(new double[,] { { 0.2, 0.9 }, { 0.7, 0.1 } });
             var Y = np.array(new[] { 1, 0 });
 
@@ -84,9 +84,9 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
 
         /// <summary>Training before Build, a wrong input width and out-of-range classes are refused.</summary>
         [TestMethod]
+        [NDScoped]
         public void RefusesBadInput()
         {
-            using var scope = NDScope.Open();
             using var model = new NetworkModel();
             model.AddLayer(new NeuralLayer(2));
             model.AddLayer(new NeuralLayer(2));

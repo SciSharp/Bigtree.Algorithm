@@ -17,9 +17,9 @@ namespace Bigtree.Algorithm.Console
     {
         /// <summary>Loads the data, fits each model, prints its held-out accuracy and fit time.</summary>
         /// <param name="args">Unused.</param>
+        [NDScoped]
         static void Main(string[] args)
         {
-            using var scope = NDScope.Open();
             var (X, y) = Utils.ReadCsv(Path.Combine(AppContext.BaseDirectory, "data", "seeds_dataset.csv"));
             NDArray scaled = Utils.Normalize(X);
             NDArray test = Utils.CrossValFolds((int)X.shape[0], 5, seed: 0)[0];

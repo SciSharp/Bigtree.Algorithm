@@ -18,9 +18,9 @@ namespace Bigtree.Algorithm.Tests.Oracle
         ///     |x|² - 2 x·t + |t|² expansion, summed in other orders).
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void Knn_MatchesKNeighborsClassifier()
         {
-            using var scope = NDScope.Open();
             using (Py.GIL())
             {
                 py.Exec(
@@ -48,9 +48,9 @@ namespace Bigtree.Algorithm.Tests.Oracle
         ///     coefficients, intercept, predictions and R² agree to 1e-10.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void LinearRegression_Diabetes()
         {
-            using var scope = NDScope.Open();
             using (Py.GIL())
             {
                 py.Exec(
@@ -77,9 +77,9 @@ namespace Bigtree.Algorithm.Tests.Oracle
         ///     tolerance, but both run it identically, so they agree far below it.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void Svm_Iris_MatchesSVC()
         {
-            using var scope = NDScope.Open();
             using (Py.GIL())
             {
                 py.Exec(

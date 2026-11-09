@@ -1,6 +1,6 @@
 #:project ../Bigtree.Algorithm/Bigtree.Algorithm.csproj
 #:property PublishAot=false
-#:property NoWarn=NDW012;NDW016;NDW017;CS8632
+#:property NoWarn=CS8632
 // Baum-Welch: Bigtree 0.4.0's log-space Run (verbatim below, as LegacyBaumWelch) against 0.5.0's Run (Rabiner's scaled
 // forward-backward) on the same models and sequences, 10 iterations each; both warmed, paused for the tier-1 JIT, warmed
 // again, then 10 interleaved rounds, best of each.

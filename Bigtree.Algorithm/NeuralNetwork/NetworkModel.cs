@@ -111,6 +111,7 @@ namespace Bigtree.Algorithm.NeuralNetwork
         ///     does not hold one class index in range per sample.
         /// </exception>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="iterations"/> is negative or <paramref name="batchSize"/> is not positive.</exception>
+        [NDScoped]
         public void Train(NDArray X, NDArray Y, int iterations, double learningRate = 0.1, int batchSize = 32)
         {
             if (iterations < 0)
@@ -118,9 +119,8 @@ namespace Bigtree.Algorithm.NeuralNetwork
             if (batchSize < 1)
                 throw new ArgumentOutOfRangeException(nameof(batchSize), batchSize, "The batch size must be at least 1.");
 
-            // One scope for the inputs' conversions; every batch below opens its own (Step is [NDScoped]), so a
+            // The woven scope holds the inputs' conversions; every batch below has its own (Step is [NDScoped]), so a
             // batch's activations and gradients return to the pool before the next batch allocates them again.
-            using var scope = NDScope.Open();
             NDArray samples = CheckInput(X);
             NDArray targets = OneHotTargets(Y, samples.shape[0]);
             long rows = samples.shape[0];
@@ -237,7 +237,6 @@ namespace Bigtree.Algorithm.NeuralNetwork
         /// <returns><paramref name="X"/> as float64 (no copy when it already is).</returns>
         /// <exception cref="InvalidOperationException"><see cref="Build"/> has not been called for the current layers.</exception>
         /// <exception cref="ArgumentException"><paramref name="X"/> is not a finite 2-D array with the input layer's width.</exception>
-        [NDScopedCovered]
         private NDArray CheckInput(NDArray X)
         {
             if (Weights is null || Weights.Length != Layers.Count - 1)
@@ -253,7 +252,6 @@ namespace Bigtree.Algorithm.NeuralNetwork
         /// <param name="rows">The sample count.</param>
         /// <returns>A float64 (samples, output neurons) array.</returns>
         /// <exception cref="ArgumentException"><paramref name="Y"/> is not one integer class index in range per sample.</exception>
-        [NDScopedCovered]
         private NDArray OneHotTargets(NDArray Y, long rows)
         {
             NDArray labels = NDHelpers.Targets(Y, rows, nameof(Y));

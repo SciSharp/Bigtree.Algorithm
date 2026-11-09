@@ -23,9 +23,9 @@ namespace Bigtree.Algorithm.Tests.Oracle
         ///     mini-batch backpropagation ends at the same weights to 1e-12.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void Network_MatchesNumPyBackpropagation()
         {
-            using var scope = NDScope.Open();
             var (X, y) = Utils.ReadCsv(Path.Combine(AppContext.BaseDirectory, "data", "seeds_dataset.csv"));
             NDArray scaled = Utils.Normalize(X);
             using var model = new NetworkModel();
@@ -70,9 +70,9 @@ namespace Bigtree.Algorithm.Tests.Oracle
         [TestMethod]
         [DataRow(8, 40, DisplayName = "8 x 40")]
         [DataRow(80, 100, DisplayName = "80 x 100")]
+        [NDScoped]
         public void BaumWelch_MatchesNumPyReEstimation(int sequences, int length)
         {
-            using var scope = NDScope.Open();
             var random = new Random(9);
             int[][] data = Enumerable.Range(0, sequences)
                 .Select(_ => Enumerable.Range(0, length).Select(__ => random.Next(3)).ToArray()).ToArray();
@@ -144,9 +144,9 @@ namespace Bigtree.Algorithm.Tests.Oracle
 
         /// <summary>The cross-validation folds are slices of NumPy's <c>default_rng(seed).permutation(N)</c>, element for element.</summary>
         [TestMethod]
+        [NDScoped]
         public void CrossValFolds_AreNumPysPermutation()
         {
-            using var scope = NDScope.Open();
             NDArray[] folds = Utils.CrossValFolds(210, 4, seed: 123);
             using (Py.GIL())
             {

@@ -9,10 +9,10 @@ namespace Bigtree.Algorithm.Internal
     ///     regression, the neural network).
     /// </summary>
     /// <remarks>
-    ///     Every member is <see cref="NDScopedCoveredAttribute"/>: it is only called from a scoped estimator member
-    ///     (an <c>[NDScoped]</c> method or one that opens an <see cref="NDScope"/> by hand), so the temporaries it
-    ///     creates are returned to NumSharp's buffer pool when that caller's scope closes. Calling one of these
-    ///     helpers outside a scope still works, but its temporaries then wait for the finalizer.
+    ///     No member opens a scope of its own: each is only called from an <c>[NDScoped]</c> estimator member, and an
+    ///     NDArray created while a scope is open belongs to that scope (the innermost one on the thread), so the
+    ///     temporaries a helper creates return to NumSharp's buffer pool when its caller's scope closes. Calling one of
+    ///     these helpers outside any scope still works, but its temporaries then wait for the finalizer.
     /// </remarks>
     internal static class NDHelpers
     {
@@ -30,7 +30,6 @@ namespace Bigtree.Algorithm.Internal
         ///     <paramref name="X"/> is not 2-D, has no rows or no columns, or holds NaN or infinity (scikit-learn's
         ///     <c>check_array</c> refuses the same inputs, and every estimator here would otherwise return NaN silently).
         /// </exception>
-        [NDScopedCovered]
         internal static NDArray Float64Matrix(NDArray X, string paramName)
         {
             if (X is null)
@@ -55,7 +54,6 @@ namespace Bigtree.Algorithm.Internal
         ///     <c>np.all(np.isfinite(values))</c> first wrote a bool array the size of <paramref name="values"/>, which
         ///     the caller's scope then held until the estimator returned (20 MB beside a 200,000 × 100 input).
         /// </remarks>
-        [NDScopedCovered]
         internal static bool AllFinite(NDArray values) => (bool)np.evaluate(NDExpr.All(NDExpr.IsFinite(values)));
 
         /// <summary>
@@ -72,7 +70,6 @@ namespace Bigtree.Algorithm.Internal
         /// <exception cref="ArgumentException">
         ///     <paramref name="y"/> is neither 1-D nor a single column, or its length differs from <paramref name="rows"/>.
         /// </exception>
-        [NDScopedCovered]
         internal static NDArray Targets(NDArray y, long rows, string paramName)
         {
             if (y is null)
@@ -94,7 +91,6 @@ namespace Bigtree.Algorithm.Internal
         ///     <c>classes</c>: the distinct labels in ascending order, in <paramref name="y"/>'s own dtype (text labels
         ///     stay text); <c>codes</c>: an int64 array with the index into <c>classes</c> of every label.
         /// </returns>
-        [NDScopedCovered]
         internal static (NDArray classes, NDArray codes) EncodeLabels(NDArray y)
         {
             var unique = np.unique(y, return_inverse: true);
@@ -140,7 +136,6 @@ namespace Bigtree.Algorithm.Internal
         ///     <c>np.array(string[])</c> refuses it with a NotSupportedException about object arrays). Callers that can
         ///     name the row check first, with their own message.
         /// </exception>
-        [NDScopedCovered]
         internal static NDArray Text(string[] values)
         {
             int width = 1;
@@ -156,7 +151,6 @@ namespace Bigtree.Algorithm.Internal
         /// <param name="codes">An int64 vector of class indices in [0, <paramref name="classes"/>).</param>
         /// <param name="classes">The number of classes (columns).</param>
         /// <returns>A float64 (n, classes) matrix; <c>onehot.T @ X</c> sums the rows of <c>X</c> per class.</returns>
-        [NDScopedCovered]
         internal static NDArray OneHot(NDArray codes, long classes)
             => (codes.reshape(-1, 1) == np.arange(classes).reshape(1, -1)).astype(np.float64);
 
@@ -173,7 +167,6 @@ namespace Bigtree.Algorithm.Internal
         ///     where <c>m</c> counts the entries equal to the maximum and <c>s</c> sums <c>exp(a - max)</c> over the rest.
         ///     A slice that is all <c>-inf</c> yields <c>-inf</c> (shift 0), and one holding <c>+inf</c> yields <c>+inf</c>.
         /// </remarks>
-        [NDScopedCovered]
         internal static NDArray LogSumExp(NDArray a, int axis)
         {
             NDArray max = np.amax(a, axis: axis, keepdims: true);
@@ -200,7 +193,6 @@ namespace Bigtree.Algorithm.Internal
         ///     the four calls' (same operations, same order). Any other dtype keeps the ufunc chain, whose NEP 50
         ///     promotion the float64-only program would refuse.
         /// </remarks>
-        [NDScopedCovered]
         internal static NDArray Sigmoid(NDArray z)
             => z.typecode == NPTypeCode.Double ? SigmoidProgram.Evaluate(new[] { z }) : 1.0 / (1.0 + np.exp(-z));
 

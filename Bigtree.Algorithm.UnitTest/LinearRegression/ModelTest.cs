@@ -15,9 +15,9 @@ namespace Bigtree.Algorithm.UnitTest.LinearRegression
     {
         /// <summary>A target built exactly from known weights is recovered, and R² is 1.</summary>
         [TestMethod]
+        [NDScoped]
         public void RecoversExactWeights()
         {
-            using var scope = NDScope.Open();
             np.random.seed(11);
             var X = np.random.uniform(-1.0, 1.0, new Shape(40, 3));
             var weights = np.array(new[] { 1.5, -2.0, 0.5 });
@@ -37,9 +37,9 @@ namespace Bigtree.Algorithm.UnitTest.LinearRegression
         ///     orthogonal to every feature and sum to 0, the defining property of least squares.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void Regression()
         {
-            using var scope = NDScope.Open();
             np.random.seed(0);
             var data_x = np.linspace(1, 10, 100);
             var data_y = np.sin(data_x) + 0.1 * np.power(data_x, 2) + 0.5 * np.random.randn(100);
@@ -55,9 +55,9 @@ namespace Bigtree.Algorithm.UnitTest.LinearRegression
 
         /// <summary>Two targets at once give (targets, features) weights and one intercept per target.</summary>
         [TestMethod]
+        [NDScoped]
         public void SeveralTargets()
         {
-            using var scope = NDScope.Open();
             np.random.seed(2);
             var X = np.random.randn(30, 2);
             var Y = np.stack(new[] { np.dot(X, np.array(new[] { 1.0, 2.0 })) + 1.0, np.dot(X, np.array(new[] { -3.0, 0.5 })) - 2.0 }, axis: 1);
@@ -75,9 +75,9 @@ namespace Bigtree.Algorithm.UnitTest.LinearRegression
 
         /// <summary>Without an intercept the fit goes through the origin.</summary>
         [TestMethod]
+        [NDScoped]
         public void WithoutIntercept()
         {
-            using var scope = NDScope.Open();
             var X = np.array(new double[,] { { 1 }, { 2 }, { 3 } });
             var y = np.array(new[] { 2.0, 4.0, 7.0 });
             using var model = new LinearRegressionModel(fitIntercept: false).Fit(X, y);
@@ -92,9 +92,9 @@ namespace Bigtree.Algorithm.UnitTest.LinearRegression
         ///     targets at once, and recovers the generating weights through the noise.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void FitAcrossSeveralBlocksMatchesTheWholeProduct()
         {
-            using var scope = NDScope.Open();
             var rng = np.random.default_rng(21);
             NDArray X = rng.normal(size: new Shape(60000, 80)) + 3.0;
             NDArray weights = rng.normal(size: new Shape(80, 2));
@@ -114,9 +114,9 @@ namespace Bigtree.Algorithm.UnitTest.LinearRegression
 
         /// <summary>Collinear features have no unique solution and are refused; a constant target scores 1 when hit exactly.</summary>
         [TestMethod]
+        [NDScoped]
         public void CollinearFeaturesAreRefused()
         {
-            using var scope = NDScope.Open();
             var x = np.array(new[] { 1.0, 2.0, 3.0, 4.0 });
             var X = np.stack(new[] { x, 2 * x }, axis: 1);
             Assert.ThrowsException<InvalidOperationException>(() => new LinearRegressionModel().Fit(X, x));

@@ -19,9 +19,9 @@ namespace Bigtree.Algorithm.UnitTest.MathFunctions
 
         /// <summary>The NDArray sigmoid and its derivative agree with the scalar functions element by element.</summary>
         [TestMethod]
+        [NumSharp.NDScoped]
         public void ArraySigmoidMatchesScalar()
         {
-            using var scope = NumSharp.NDScope.Open();
             double[] inputs = { -30, -2.5, -0.1, 0, 0.1, 2.5, 30 };
             NumSharp.NDArray y = Function.Sigmoid(NumSharp.np.array(inputs), coefficient: 1.5);
             NumSharp.NDArray dy = Function.SigmoidDerivative(y);

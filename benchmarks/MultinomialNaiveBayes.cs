@@ -1,6 +1,5 @@
 #:project ../Bigtree.Algorithm/Bigtree.Algorithm.csproj
 #:property PublishAot=false
-#:property NoWarn=NDW012;NDW016;NDW017
 // CherubNLP's Naive Bayes training pass (every label x feature x value 0/1 through CalCondProb) on Bigtree 0.4.0's
 // MultinomiaNaiveBayes (its own spelling; copied verbatim below as Legacy) and on 0.5.0's MultinomialNaiveBayes, which
 // counts each value in one SIMD pass over the samples and turns the counts into log-probabilities with NumSharp.

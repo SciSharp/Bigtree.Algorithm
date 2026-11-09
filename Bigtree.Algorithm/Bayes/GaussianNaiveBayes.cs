@@ -97,9 +97,26 @@ namespace Bigtree.Algorithm.Bayes
         /// </exception>
         public GaussianNaiveBayes Fit(NDArray X, NDArray y)
         {
-            // Every temporary of the fit returns to the pool when this scope closes; the fitted arrays are detached
-            // from it below, because the model keeps them past this call.
-            using var scope = NDScope.Open();
+            FitCore(X, y);
+            return this;
+        }
+
+        /// <summary>
+        ///     The body of <see cref="Fit"/>: the per-class moments, the smoothing and the priors, stored as the fitted
+        ///     arrays. Every temporary returns to the pool when the woven scope closes; the fitted arrays are detached
+        ///     from it, because the model keeps them past this call.
+        /// </summary>
+        /// <param name="X">The training samples (see <see cref="Fit"/>).</param>
+        /// <param name="y">One label per sample.</param>
+        /// <remarks>
+        ///     <c>[NDScoped]</c> cannot sit on <see cref="Fit"/> itself: the weaver refuses a method returning a reference
+        ///     type that is not an NDArray carrier (NDW003), and <see cref="Fit"/> returns the model.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="X"/> or <paramref name="y"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">See <see cref="Fit"/>.</exception>
+        [NDScoped]
+        private void FitCore(NDArray X, NDArray y)
+        {
             NDArray samples = NDHelpers.Float64Matrix(X, nameof(X));
             NDArray labels = NDHelpers.Targets(y, samples.shape[0], nameof(y));
             var (classes, codes) = NDHelpers.EncodeLabels(labels);
@@ -112,15 +129,7 @@ namespace Bigtree.Algorithm.Bayes
             var variances = new NDArray[classCount];
             var counts = new double[classCount];
             for (int i = 0; i < classCount; i++)
-            {
-                // A scope per class: the copy of the class's rows (and the mask) is freed before the next class's,
-                // instead of every class's copy living until the fit returns.
-                using var perClass = NDScope.Open();
-                NDArray members = samples[codes == i];
-                means[i] = perClass.Returns(np.mean(members, axis: 0));
-                variances[i] = perClass.Returns(np.var(members, axis: 0));
-                counts[i] = members.shape[0];
-            }
+                (means[i], variances[i], counts[i]) = ClassMoments(samples, codes, i);
 
             NDArray theta = np.stack(means);
             NDArray variance = np.stack(variances) + epsilon;
@@ -135,7 +144,23 @@ namespace Bigtree.Algorithm.Bayes
             Theta = theta;
             Var = variance;
             Epsilon = epsilon;
-            return this;
+        }
+
+        /// <summary>One class's feature means and variances (scikit-learn's per-class <c>np.mean</c> / <c>np.var</c>).</summary>
+        /// <param name="samples">The float64 training samples.</param>
+        /// <param name="codes">Every sample's class index.</param>
+        /// <param name="i">The class index.</param>
+        /// <returns>The class's means and variances, shape (features,), and its sample count.</returns>
+        /// <remarks>
+        ///     Its own woven scope: the copy of the class's rows (and the mask) is freed before the next class's,
+        ///     instead of every class's copy living until the fit returns. The two returned arrays leave the scope to
+        ///     the caller's.
+        /// </remarks>
+        [NDScoped]
+        private static (NDArray mean, NDArray variance, double count) ClassMoments(NDArray samples, NDArray codes, int i)
+        {
+            NDArray members = samples[codes == i];
+            return (np.mean(members, axis: 0), np.var(members, axis: 0), members.shape[0]);
         }
 
         /// <summary>
@@ -153,24 +178,36 @@ namespace Bigtree.Algorithm.Bayes
             NDArray logPrior = np.log(ClassPrior);
             var columns = new NDArray[Classes.size];
             for (int i = 0; i < columns.Length; i++)
-            {
-                // A scope per class: its (samples, features) temporary is freed before the next class allocates it
-                // again. In the method's one scope all classes' temporaries stayed alive until it returned: 100,000 x 50
-                // with 10 classes peaked at 1.4 GB for a 40 MB input.
-                using var perClass = NDScope.Open();
-                NDArray theta = Theta[i], variance = Var[i];
-                // scikit-learn's _joint_log_likelihood, term for term: a scalar normalizer, minus half the
-                // variance-weighted squared distance of every sample, plus the log prior. The distance's element-wise
-                // part, ((X - theta) ** 2) / var, is one fused pass (WeightedSquare): the same three operations in the
-                // same order, one temporary instead of three.
-                NDArray normalizer = -0.5 * np.sum(np.log(2.0 * Math.PI * variance));
-                NDArray distance = normalizer - 0.5 * np.sum(WeightedSquare.Evaluate(new[] { samples, theta, variance }), axis: 1);
-                columns[i] = perClass.Returns(logPrior[i] + distance);
-            }
+                columns[i] = ClassJointLogLikelihood(samples, logPrior, i);
 
             // scikit-learn stacks the per-class columns as rows and transposes: the (samples, classes) result is a
             // column-major view. Keeping that layout keeps the reduction order of a later log-sum-exp identical.
             return np.stack(columns).T;
+        }
+
+        /// <summary>
+        ///     One class's column of the joint log-likelihood: scikit-learn's <c>_joint_log_likelihood</c> term for
+        ///     term, a scalar normalizer, minus half the variance-weighted squared distance of every sample, plus the log
+        ///     prior.
+        /// </summary>
+        /// <param name="samples">The float64 samples, shape (samples, features).</param>
+        /// <param name="logPrior">The log of every class prior.</param>
+        /// <param name="i">The class index.</param>
+        /// <returns>The class's column, shape (samples,).</returns>
+        /// <remarks>
+        ///     Its own woven scope: the class's (samples, features) temporary is freed before the next class allocates
+        ///     it again. In one scope for all classes, every class's temporaries stayed alive until the prediction
+        ///     returned: 100,000 x 50 with 10 classes peaked at 1.4 GB for a 40 MB input. The distance's element-wise
+        ///     part, <c>((X - theta) ** 2) / var</c>, is one fused pass (<see cref="WeightedSquare"/>): the same three
+        ///     operations in the same order, one temporary instead of three.
+        /// </remarks>
+        [NDScoped]
+        private NDArray ClassJointLogLikelihood(NDArray samples, NDArray logPrior, int i)
+        {
+            NDArray theta = Theta[i], variance = Var[i];
+            NDArray normalizer = -0.5 * np.sum(np.log(2.0 * Math.PI * variance));
+            NDArray distance = normalizer - 0.5 * np.sum(WeightedSquare.Evaluate(new[] { samples, theta, variance }), axis: 1);
+            return logPrior[i] + distance;
         }
 
         /// <summary>The log of the class probabilities of every sample (<c>predict_log_proba</c>).</summary>
@@ -236,7 +273,6 @@ namespace Bigtree.Algorithm.Bayes
         /// <param name="classCount">The number of classes found in <c>y</c>.</param>
         /// <returns>A float64 copy of <paramref name="priors"/>.</returns>
         /// <exception cref="ArgumentException">The count differs from the class count, the sum is not 1, or a prior is negative.</exception>
-        [NDScopedCovered]
         private static NDArray CheckPriors(NDArray priors, long classCount)
         {
             if (priors.ndim != 1 || priors.size != classCount)
@@ -255,7 +291,6 @@ namespace Bigtree.Algorithm.Bayes
         /// <returns><paramref name="X"/> as float64 (no copy when it already is).</returns>
         /// <exception cref="InvalidOperationException">The model is not fitted.</exception>
         /// <exception cref="ArgumentException"><paramref name="X"/> is not a finite 2-D array with the fitted feature count.</exception>
-        [NDScopedCovered]
         private NDArray CheckFeatures(NDArray X)
         {
             if (Theta is null)

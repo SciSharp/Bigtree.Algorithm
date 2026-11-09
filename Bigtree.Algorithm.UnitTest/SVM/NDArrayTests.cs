@@ -15,9 +15,9 @@ namespace Bigtree.Algorithm.UnitTest.SVM
     {
         /// <summary>A dense matrix becomes 1-based nodes, zeros included, with MaxIndex = the feature count.</summary>
         [TestMethod]
+        [NDScoped]
         public void FromNDArrayIsDenseAndOneBased()
         {
-            using var scope = NDScope.Open();
             Problem problem = Problem.FromNDArray(np.array(new double[,] { { 0.5, 0 }, { -1, 2 } }), np.array(new[] { 1, -1 }));
 
             Assert.AreEqual(2, problem.Count);
@@ -35,9 +35,9 @@ namespace Bigtree.Algorithm.UnitTest.SVM
         ///     <c>Degree</c> where training used <c>Gamma</c>, and this test failed for it.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void BatchPredictionsAgreeWithPerRow()
         {
-            using var scope = NDScope.Open();
             np.random.seed(17);
             NDArray X = np.random.uniform(-1.0, 1.0, new Shape(120, 3));
             NDArray labels = (X[":, 0"] + X[":, 1"] * X[":, 2"] > 0).astype(np.float64) + (X[":, 2"] > 0.5).astype(np.float64);
@@ -68,9 +68,9 @@ namespace Bigtree.Algorithm.UnitTest.SVM
 
         /// <summary>Two classes give one decision column; its sign decides the label like libsvm's vote.</summary>
         [TestMethod]
+        [NDScoped]
         public void TwoClassDecisionValues()
         {
-            using var scope = NDScope.Open();
             var X = np.array(new double[,] { { -2, 0 }, { -1, 1 }, { 1, -1 }, { 2, 0 } });
             Model model = Training.Train(Problem.FromNDArray(X, np.array(new[] { 4, 4, 9, 9 })), new Parameter { KernelType = KernelType.LINEAR });
 
@@ -85,9 +85,9 @@ namespace Bigtree.Algorithm.UnitTest.SVM
 
         /// <summary>The batch probabilities equal the per-row ones and sum to 1.</summary>
         [TestMethod]
+        [NDScoped]
         public void BatchProbabilitiesAgreeWithPerRow()
         {
-            using var scope = NDScope.Open();
             np.random.seed(5);
             NDArray X = np.random.randn(60, 2);
             NDArray y = (X[":, 0"] > 0).astype(np.float64);
@@ -104,9 +104,9 @@ namespace Bigtree.Algorithm.UnitTest.SVM
 
         /// <summary>A model trained on 0-based features (CherubNLP's) cannot read a matrix: index 0 has no column.</summary>
         [TestMethod]
+        [NDScoped]
         public void ZeroBasedModelsUseTheNodeApi()
         {
-            using var scope = NDScope.Open();
             var problem = new Problem(4, new[] { 0.0, 0, 1, 1 },
                 new[] { new[] { new Node(0, -1.0) }, new[] { new Node(0, -2.0) }, new[] { new Node(0, 1.0) }, new[] { new Node(0, 2.0) } }, 1);
             Model model = Training.Train(problem, new Parameter { KernelType = KernelType.LINEAR });

@@ -12,9 +12,9 @@ namespace Bigtree.Algorithm.UnitTest
     {
         /// <summary>The seeds dataset reads as 210 samples of 7 features and three balanced classes numbered 0..2.</summary>
         [TestMethod]
+        [NDScoped]
         public void ReadCsv_Seeds()
         {
-            using var scope = NDScope.Open();
             var (X, y) = Utils.ReadCsv(Path.Combine(DataDir, "seeds_dataset.csv"));
 
             CollectionAssert.AreEqual(new long[] { 210, 7 }, X.shape);
@@ -27,9 +27,9 @@ namespace Bigtree.Algorithm.UnitTest
 
         /// <summary>The folds are disjoint, equally sized (the remainder is left out), in range and reproducible.</summary>
         [TestMethod]
+        [NDScoped]
         public void CrossValFolds_DisjointAndReproducible()
         {
-            using var scope = NDScope.Open();
             NDArray[] folds = Utils.CrossValFolds(210, 4, seed: 7);
 
             Assert.AreEqual(4, folds.Length);
@@ -47,9 +47,9 @@ namespace Bigtree.Algorithm.UnitTest
 
         /// <summary>Every column of a normalized matrix spans exactly [0, 1].</summary>
         [TestMethod]
+        [NDScoped]
         public void Normalize_ScalesEveryColumnToUnitRange()
         {
-            using var scope = NDScope.Open();
             var X = np.array(new double[,] { { 1, 10 }, { 3, -10 }, { 2, 0 } });
             NDArray scaled = Utils.Normalize(X);
 

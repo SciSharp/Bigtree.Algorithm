@@ -1,9 +1,10 @@
 #:project ../Bigtree.Algorithm/Bigtree.Algorithm.csproj
+#:package NumSharp.Build@0.80.0
 #:property PublishAot=false
-#:property NoWarn=NDW012;NDW016;NDW017
 // ID3 on noisy random tables: 0.5.0's first port (commit 3226aad: every node re-encoded each of its columns with
 // np.unique and counted them with np.bincount; copied below verbatim but for the Strings helper, which is internal to
-// the library) against 0.5.0's Tree.Learn (each column encoded once, the tree grown over integer codes). 0.4.0's ID3
+// the library, and its hand-opened scope, now the woven [NDScoped] BestAttribute) against 0.5.0's Tree.Learn (each
+// column encoded once, the tree grown over integer codes). 0.4.0's ID3
 // cannot be the baseline: it drops every column left of the split and throws once rows contradict each other or the
 // columns run out, which noisy tables always reach. Checks both grow the same tree, gains' bits included, before timing.
 //   dotnet run -c Release benchmarks/DecisionTree.cs
@@ -163,13 +164,26 @@ static class FirstPort
     /// <returns>The node, its attribute's values in appearance order.</returns>
     private static TreeNode GetRootNode(TrainingData data, string edge)
     {
-        using var scope = NDScope.Open();
+        var attributes = new List<NodeAttribute>();
+        int highestInformationGainIndex = BestAttribute(data, attributes);
+        return new TreeNode(attributes[highestInformationGainIndex].Name, highestInformationGainIndex, attributes[highestInformationGainIndex], edge);
+    }
+
+    /// <summary>
+    ///     The NumSharp part of <see cref="GetRootNode"/> (the first port opened its scope there with NDScope.Open): every
+    ///     attribute's gain, in its own woven scope per node.
+    /// </summary>
+    /// <param name="data">The node's table.</param>
+    /// <param name="attributes">Receives one attribute (values and gain) per attribute column, in table order.</param>
+    /// <returns>The index of the attribute with the highest gain (the first one on a tie).</returns>
+    [NDScoped]
+    private static int BestAttribute(TrainingData data, List<NodeAttribute> attributes)
+    {
         int labelColumn = data.Columns.Length - 1;
         int rows = data.Rows.Length;
         var (labelCodes, labelCount, _) = Encode(data, labelColumn);
         double tableEntropy = Entropy(np.bincount(labelCodes, minlength: labelCount).astype(np.float64).reshape(1, -1)).GetDouble(0);
 
-        var attributes = new List<NodeAttribute>();
         var highestInformationGainIndex = -1;
         var highestInformationGain = double.MinValue;
         for (var i = 0; i < labelColumn; i++)
@@ -191,7 +205,7 @@ static class FirstPort
             }
         }
 
-        return new TreeNode(attributes[highestInformationGainIndex].Name, highestInformationGainIndex, attributes[highestInformationGainIndex], edge);
+        return highestInformationGainIndex;
     }
 
     /// <summary>
@@ -201,7 +215,6 @@ static class FirstPort
     /// <param name="data">The table.</param>
     /// <param name="column">The column index.</param>
     /// <returns>The rows' codes (in the caller's scope), the number of values and their texts in appearance order.</returns>
-    [NDScopedCovered]
     private static (NDArray codes, int count, string[] values) Encode(TrainingData data, int column)
     {
         var unique = np.unique(np.array(data.Rows.Select(row => row[column]).ToArray()), return_index: true, return_inverse: true);
@@ -215,7 +228,6 @@ static class FirstPort
     /// <summary>The Shannon entropy in bits of each row of a count table.</summary>
     /// <param name="counts">A (rows × labels) float64 count table, every row with a positive sum.</param>
     /// <returns>One entropy per row (in the caller's scope).</returns>
-    [NDScopedCovered]
     private static NDArray Entropy(NDArray counts)
     {
         NDArray p = counts / np.sum(counts, axis: 1, keepdims: true);

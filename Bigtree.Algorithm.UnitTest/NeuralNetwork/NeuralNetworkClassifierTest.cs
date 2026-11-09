@@ -18,9 +18,9 @@ namespace Bigtree.Algorithm.UnitTest.NeuralNetwork
     {
         /// <summary>Trains one network per fold and checks the average training and test accuracy.</summary>
         [TestMethod]
+        [NDScoped]
         public void SeedsClassificationTest()
         {
-            using var scope = NDScope.Open();
             var filename = Path.Combine(DataDir, "seeds_dataset.csv");
             var n_hidden_nodes = 5; // nodes in hidden layers
             var l_rate = 1.5; // learning rate (per batch of 8: the mean update of 8 samples)

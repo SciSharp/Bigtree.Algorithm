@@ -89,9 +89,26 @@ namespace Bigtree.Algorithm.Bayes
         /// </exception>
         public BernoulliNaiveBayes Fit(NDArray X, NDArray y)
         {
-            // Every temporary of the fit returns to the pool when this scope closes; the fitted arrays are detached
-            // from it below, because the model keeps them past this call.
-            using var scope = NDScope.Open();
+            FitCore(X, y);
+            return this;
+        }
+
+        /// <summary>
+        ///     The body of <see cref="Fit"/>: counts, smooths and stores the fitted arrays. Every temporary returns to
+        ///     the pool when the woven scope closes; the fitted arrays are detached from it, because the model keeps
+        ///     them past this call.
+        /// </summary>
+        /// <param name="X">The training samples (see <see cref="Fit"/>).</param>
+        /// <param name="y">One label per sample.</param>
+        /// <remarks>
+        ///     <c>[NDScoped]</c> cannot sit on <see cref="Fit"/> itself: the weaver refuses a method returning a reference
+        ///     type that is not an NDArray carrier (NDW003), and <see cref="Fit"/> returns the model.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="X"/> or <paramref name="y"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">See <see cref="Fit"/>.</exception>
+        [NDScoped]
+        private void FitCore(NDArray X, NDArray y)
+        {
             NDArray samples = Binarized(NDHelpers.Float64Matrix(X, nameof(X)));
             NDArray labels = NDHelpers.Targets(y, samples.shape[0], nameof(y));
             var (classes, codes) = NDHelpers.EncodeLabels(labels);
@@ -111,7 +128,6 @@ namespace Bigtree.Algorithm.Bayes
             FeatureCount = featureCount;
             FeatureLogProb = featureLogProb;
             ClassLogPrior = classLogPrior;
-            return this;
         }
 
         /// <summary>The joint log-likelihood <c>log P(c) + log P(x | c)</c> of every sample and class (<c>predict_joint_log_proba</c>).</summary>
@@ -188,7 +204,6 @@ namespace Bigtree.Algorithm.Bayes
         /// <summary>Maps features to {0, 1} with <see cref="Binarize"/> (scikit-learn's <c>binarize</c>), or passes them through.</summary>
         /// <param name="samples">A float64 sample matrix.</param>
         /// <returns>A float64 array of 0.0 and 1.0, or <paramref name="samples"/> itself when <see cref="Binarize"/> is <c>null</c>.</returns>
-        [NDScopedCovered]
         private NDArray Binarized(NDArray samples)
             => Binarize is double threshold ? (samples > threshold).astype(np.float64) : samples;
 
@@ -199,7 +214,6 @@ namespace Bigtree.Algorithm.Bayes
         /// <param name="classCount">The number of training samples of each class.</param>
         /// <returns>A float64 vector with one log prior per class.</returns>
         /// <exception cref="ArgumentException">The fixed priors do not have one entry per class.</exception>
-        [NDScopedCovered]
         private NDArray LogPrior(NDArray classCount)
         {
             long classes = classCount.size;
@@ -220,7 +234,6 @@ namespace Bigtree.Algorithm.Bayes
         /// <returns>The binarized float64 samples.</returns>
         /// <exception cref="InvalidOperationException">The model is not fitted.</exception>
         /// <exception cref="ArgumentException"><paramref name="X"/> is not a finite 2-D array with the fitted feature count.</exception>
-        [NDScopedCovered]
         private NDArray CheckFeatures(NDArray X)
         {
             if (FeatureLogProb is null)

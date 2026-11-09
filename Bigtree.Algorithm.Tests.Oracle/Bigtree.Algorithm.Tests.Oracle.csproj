@@ -9,6 +9,8 @@
   <ItemGroup>
     <PackageReference Include="MSTest" Version="3.8.3" />
     <PackageReference Include="NumSharp.Interop.pythonnet" Version="0.80.0" />
+    <!-- Build-time only: weaves the tests' [NDScoped] methods, so each test's NDArrays return to NumSharp's pool. -->
+    <PackageReference Include="NumSharp.Build" Version="0.80.0" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

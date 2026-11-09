@@ -172,7 +172,6 @@ namespace Bigtree.Algorithm.DecisionTree
             ///     discovery refuses it), and a sized request would store the text "None" in its place.</exception>
             public static CodedTable Create(TrainingData data)
             {
-                using var scope = NDScope.Open();
                 int columns = data.Columns.Length;
                 var table = new CodedTable { Names = data.Columns, Codes = new int[columns][], Values = new string[columns][] };
                 var column = new string[data.Rows.Length];
@@ -181,12 +180,25 @@ namespace Bigtree.Algorithm.DecisionTree
                     // Checked here rather than in NDHelpers.Text so the message names the row and the column.
                     for (int i = 0; i < column.Length; i++)
                         column[i] = data.Rows[i][c] ?? throw new ArgumentException($"Row {i} has no value in column '{data.Columns[c]}'.", nameof(data));
-
-                    var unique = np.unique(Internal.NDHelpers.Text(column), return_inverse: true);
-                    table.Values[c] = Internal.NDHelpers.Strings(unique.values);
-                    table.Codes[c] = unique.inverse_indices.astype(np.int32).ToArray<int>();
+                    table.Encode(c, column);
                 }
                 return table;
+            }
+
+            /// <summary>Encodes one column: its codes and the text of every code, from <c>np.unique</c>.</summary>
+            /// <param name="c">The column index.</param>
+            /// <param name="column">The column's values, none null.</param>
+            /// <remarks>
+            ///     Its own woven scope, so each column's arrays return to the pool before the next column is encoded.
+            ///     <c>[NDScoped]</c> cannot sit on <see cref="Create"/>: the weaver refuses a method returning a
+            ///     reference type that is not an NDArray carrier (NDW003).
+            /// </remarks>
+            [NDScoped]
+            private void Encode(int c, string[] column)
+            {
+                var unique = np.unique(Internal.NDHelpers.Text(column), return_inverse: true);
+                Values[c] = Internal.NDHelpers.Strings(unique.values);
+                Codes[c] = unique.inverse_indices.astype(np.int32).ToArray<int>();
             }
         }
 

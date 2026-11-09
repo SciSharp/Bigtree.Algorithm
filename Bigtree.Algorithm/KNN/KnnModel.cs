@@ -15,8 +15,8 @@ namespace Bigtree.Algorithm.KNN
     ///     training sample are <c>|x|^2 - 2 x . t + |t|^2</c>, one matrix product (scikit-learn computes them the same
     ///     way, here fused into one <c>np.evaluate</c> pass); <c>np.argpartition</c> picks the <see cref="K"/> smallest per
     ///     row without sorting the rest; the votes are one <c>np.bincount</c>. Queries run in blocks of at most 4,194,304
-    ///     distances (32 MB), each in its own <see cref="NDScope"/>, so memory does not grow with the batch: 8,000 queries
-    ///     against 8,000 training samples peaked at 3.0 GB computed at once.</para>
+    ///     distances (32 MB), each in an <c>[NDScoped]</c> method of its own, so memory does not grow with the batch: 8,000
+    ///     queries against 8,000 training samples peaked at 3.0 GB computed at once.</para>
     ///     <para><b>Ties.</b> A vote tie goes to the class that comes first in <see cref="Classes"/> (ascending order),
     ///     like scikit-learn. Neighbours at exactly equal distance are an arbitrary pick between them, in scikit-learn
     ///     too.</para>
@@ -61,9 +61,25 @@ namespace Bigtree.Algorithm.KNN
         /// </exception>
         public KnnModel Fit(NDArray X, NDArray y)
         {
-            // Every temporary of the fit returns to the pool when this scope closes; what the model keeps is
-            // detached from it below.
-            using var scope = NDScope.Open();
+            FitCore(X, y);
+            return this;
+        }
+
+        /// <summary>
+        ///     The body of <see cref="Fit"/>: validates and stores the training samples, their codes and norms. Every
+        ///     temporary returns to the pool when the woven scope closes; what the model keeps is detached from it.
+        /// </summary>
+        /// <param name="X">The training samples (see <see cref="Fit"/>).</param>
+        /// <param name="y">One label per sample.</param>
+        /// <remarks>
+        ///     <c>[NDScoped]</c> cannot sit on <see cref="Fit"/> itself: the weaver refuses a method returning a reference
+        ///     type that is not an NDArray carrier (NDW003), and <see cref="Fit"/> returns the model.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="X"/> or <paramref name="y"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">See <see cref="Fit"/>.</exception>
+        [NDScoped]
+        private void FitCore(NDArray X, NDArray y)
+        {
             NDArray samples = NDHelpers.Float64Matrix(X, nameof(X));
             if (samples.shape[0] < K)
                 throw new ArgumentException($"Expected at least K = {K} samples to fit, got {samples.shape[0]}.", nameof(X));
@@ -79,7 +95,6 @@ namespace Bigtree.Algorithm.KNN
             TrainingCodes = codes;
             TrainingSamples = training;
             _trainingNorms = norms;
-            return this;
         }
 
         /// <summary>
@@ -100,20 +115,29 @@ namespace Bigtree.Algorithm.KNN
             NDArray distances = np.empty(new Shape(rows, K));
             NDArray indices = np.empty(new Shape(rows, K), np.int64);
             for (long start = 0; start < rows; start += BlockRows)
-            {
-                // One query block at a time, in its own scope: its (block, training samples) matrices are returned to
-                // the pool before the next block allocates them, so memory stays at one block whatever the batch size.
-                using var block = NDScope.Open();
-                string range = $"{start}:{Math.Min(start + BlockRows, rows)}";
-                NDArray squared = SquaredDistances(samples[range]);
-                NDArray nearest = Nearest(squared);
-                // argpartition leaves the K nearest unordered: sort just those K per row.
-                NDArray nearestSquared = np.take_along_axis(squared, nearest, axis: 1);
-                NDArray order = np.argsort(nearestSquared, axis: 1);
-                indices[range] = np.take_along_axis(nearest, order, axis: 1);
-                distances[range] = np.sqrt(np.take_along_axis(nearestSquared, order, axis: 1));
-            }
+                KNeighborsBlock(samples, $"{start}:{Math.Min(start + BlockRows, rows)}", distances, indices);
             return (distances, indices);
+        }
+
+        /// <summary>One block of <see cref="KNeighbors"/>: the block's neighbours, written into the full outputs.</summary>
+        /// <param name="samples">All query samples, float64.</param>
+        /// <param name="range">The block's rows, in slice notation.</param>
+        /// <param name="distances">The full (samples, K) distance output; the block's rows are written.</param>
+        /// <param name="indices">The full (samples, K) index output; the block's rows are written.</param>
+        /// <remarks>
+        ///     Its own woven scope: the block's (block, training samples) matrices return to the pool before the next
+        ///     block allocates them, so memory stays at one block whatever the batch size.
+        /// </remarks>
+        [NDScoped]
+        private void KNeighborsBlock(NDArray samples, string range, NDArray distances, NDArray indices)
+        {
+            NDArray squared = SquaredDistances(samples[range]);
+            NDArray nearest = Nearest(squared);
+            // argpartition leaves the K nearest unordered: sort just those K per row.
+            NDArray nearestSquared = np.take_along_axis(squared, nearest, axis: 1);
+            NDArray order = np.argsort(nearestSquared, axis: 1);
+            indices[range] = np.take_along_axis(nearest, order, axis: 1);
+            distances[range] = np.sqrt(np.take_along_axis(nearestSquared, order, axis: 1));
         }
 
         /// <summary>The fraction of each sample's <see cref="K"/> nearest neighbours that carry each class (<c>predict_proba</c>).</summary>
@@ -170,7 +194,6 @@ namespace Bigtree.Algorithm.KNN
         /// <summary>The squared Euclidean distance of every query sample to every training sample.</summary>
         /// <param name="samples">Validated float64 query samples (one block).</param>
         /// <returns>A float64 (samples, training samples) array, never negative.</returns>
-        [NDScopedCovered]
         private NDArray SquaredDistances(NDArray samples)
         {
             NDArray queryNorms = np.sum(np.square(samples), axis: 1, keepdims: true);
@@ -183,31 +206,37 @@ namespace Bigtree.Algorithm.KNN
         /// <summary>The training rows of the <see cref="K"/> smallest distances of every query row, in no particular order.</summary>
         /// <param name="squared">The (samples, training samples) squared distances.</param>
         /// <returns>An int64 (samples, K) array of training row numbers.</returns>
-        [NDScopedCovered]
         private NDArray Nearest(NDArray squared)
             => np.argpartition(squared, K - 1, axis: 1)[$":, :{K}"];
 
         /// <summary>How many of every sample's <see cref="K"/> nearest neighbours carry each class.</summary>
         /// <param name="samples">Validated float64 query samples.</param>
         /// <returns>A float64 (samples, classes) array of vote counts.</returns>
-        [NDScopedCovered]
         private NDArray Votes(NDArray samples)
         {
             long rows = samples.shape[0], classes = Classes.size;
             NDArray votes = np.empty(new Shape(rows, classes));
             for (long start = 0; start < rows; start += BlockRows)
-            {
-                // A scope per block: the block's distances die before the next block allocates its own.
-                using var block = NDScope.Open();
-                long stop = Math.Min(start + BlockRows, rows);
-                NDArray codes = TrainingCodes[Nearest(SquaredDistances(samples[$"{start}:{stop}"]))];   // (block, K)
-                // Shift row r's class codes into slots r * classes .. r * classes + classes - 1: one bincount then
-                // counts every row's votes at once, without a (block, K, classes) one-hot tensor.
-                NDArray slots = codes + (np.arange(stop - start) * classes).reshape(-1, 1);
-                NDArray counts = np.bincount(slots.reshape(-1), minlength: (int)((stop - start) * classes));
-                votes[$"{start}:{stop}"] = counts.reshape(stop - start, classes).astype(np.float64);
-            }
+                VotesBlock(samples, start, Math.Min(start + BlockRows, rows), votes);
             return votes;
+        }
+
+        /// <summary>One block of <see cref="Votes"/>: the block's vote counts, written into the full output.</summary>
+        /// <param name="samples">All query samples, float64.</param>
+        /// <param name="start">The block's first row.</param>
+        /// <param name="stop">One past the block's last row.</param>
+        /// <param name="votes">The full (samples, classes) vote output; the block's rows are written.</param>
+        /// <remarks>Its own woven scope: the block's distances die before the next block allocates its own.</remarks>
+        [NDScoped]
+        private void VotesBlock(NDArray samples, long start, long stop, NDArray votes)
+        {
+            long classes = Classes.size;
+            NDArray codes = TrainingCodes[Nearest(SquaredDistances(samples[$"{start}:{stop}"]))];   // (block, K)
+            // Shift row r's class codes into slots r * classes .. r * classes + classes - 1: one bincount then counts
+            // every row's votes at once, without a (block, K, classes) one-hot tensor.
+            NDArray slots = codes + (np.arange(stop - start) * classes).reshape(-1, 1);
+            NDArray counts = np.bincount(slots.reshape(-1), minlength: (int)((stop - start) * classes));
+            votes[$"{start}:{stop}"] = counts.reshape(stop - start, classes).astype(np.float64);
         }
 
         /// <summary>Validates query input against the fitted model.</summary>
@@ -215,7 +244,6 @@ namespace Bigtree.Algorithm.KNN
         /// <returns><paramref name="X"/> as float64 (no copy when it already is).</returns>
         /// <exception cref="InvalidOperationException">The model is not fitted.</exception>
         /// <exception cref="ArgumentException"><paramref name="X"/> is not a finite 2-D array with the training feature count.</exception>
-        [NDScopedCovered]
         private NDArray CheckFeatures(NDArray X)
         {
             if (TrainingSamples is null)

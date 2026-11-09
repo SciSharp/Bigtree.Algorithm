@@ -22,9 +22,9 @@ namespace Bigtree.Algorithm.Tests.Oracle
         ///     reductions and ufuncs are NumPy's.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void Gaussian_Iris_BitIdentical()
         {
-            using var scope = NDScope.Open();
             using (Py.GIL())
             {
                 py.Exec(
@@ -53,9 +53,9 @@ namespace Bigtree.Algorithm.Tests.Oracle
 
         /// <summary>GaussianNB with fixed priors and heavier variance smoothing on the wine dataset (13 features, 3 classes).</summary>
         [TestMethod]
+        [NDScoped]
         public void Gaussian_Wine_PriorsAndSmoothing()
         {
-            using var scope = NDScope.Open();
             using (Py.GIL())
             {
                 py.Exec(
@@ -79,9 +79,9 @@ namespace Bigtree.Algorithm.Tests.Oracle
         ///     runs on BLAS, so they agree to rounding.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void Bernoulli_Digits()
         {
-            using var scope = NDScope.Open();
             using (Py.GIL())
             {
                 py.Exec(
@@ -108,9 +108,9 @@ namespace Bigtree.Algorithm.Tests.Oracle
         ///     evaluation of the same formula <c>log((n_cxv + alpha) / (n_c + n_c * alpha))</c> to the last bit.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void Multinomial_FormulaMatchesNumPy()
         {
-            using var scope = NDScope.Open();
             using (Py.GIL())
             {
                 py.Exec(

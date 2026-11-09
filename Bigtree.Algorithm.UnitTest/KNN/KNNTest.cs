@@ -13,9 +13,9 @@ namespace Bigtree.Algorithm.UnitTest.KNN
     {
         /// <summary>On a line of points the neighbours, their distances (ascending) and the vote fractions are exact.</summary>
         [TestMethod]
+        [NDScoped]
         public void NeighboursAndVotesOnALine()
         {
-            using var scope = NDScope.Open();
             var X = np.array(new double[,] { { 0 }, { 1 }, { 2 }, { 10 }, { 11 } });
             var y = np.array(new[] { 0, 0, 1, 1, 1 });
             using var model = new KnnModel(k: 3).Fit(X, y);
@@ -41,9 +41,9 @@ namespace Bigtree.Algorithm.UnitTest.KNN
 
         /// <summary>A vote tie goes to the class that sorts first, as in scikit-learn.</summary>
         [TestMethod]
+        [NDScoped]
         public void VoteTieGoesToTheFirstClass()
         {
-            using var scope = NDScope.Open();
             var X = np.array(new double[,] { { -1 }, { 1 } });
             var y = np.array(new[] { 7, 3 });
             using var model = new KnnModel(k: 2).Fit(X, y);
@@ -52,9 +52,9 @@ namespace Bigtree.Algorithm.UnitTest.KNN
 
         /// <summary>With k = 1 every training sample is its own nearest neighbour; text labels stay text.</summary>
         [TestMethod]
+        [NDScoped]
         public void OneNeighbourReproducesTheTrainingLabels()
         {
-            using var scope = NDScope.Open();
             np.random.seed(5);
             var X = np.random.rand(30, 4);
             var names = new string[30];
@@ -69,9 +69,9 @@ namespace Bigtree.Algorithm.UnitTest.KNN
 
         /// <summary>On the seeds dataset, 5 neighbours classify held-out samples well (a sanity bound, not an oracle).</summary>
         [TestMethod]
+        [NDScoped]
         public void SeedsHoldOut()
         {
-            using var scope = NDScope.Open();
             var (X, y) = Utils.ReadCsv(Path.Combine(DataDir, "seeds_dataset.csv"));
             NDArray scaled = Utils.Normalize(X);
             NDArray[] folds = Utils.CrossValFolds(210, 5, seed: 3);
@@ -88,9 +88,9 @@ namespace Bigtree.Algorithm.UnitTest.KNN
         ///     votes of a plain scalar brute-force search, and Predict agrees with KNeighbors' majority.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void BlocksAgreeWithBruteForce()
         {
-            using var scope = NDScope.Open();
             var rng = np.random.default_rng(11);
             NDArray X = rng.normal(size: new Shape(4200, 3)), Q = rng.normal(size: new Shape(2500, 3));
             NDArray y = (X[":, 0"] * X[":, 1"] > 0).astype(np.int64) + (X[":, 2"] > 1).astype(np.int64);
@@ -117,9 +117,9 @@ namespace Bigtree.Algorithm.UnitTest.KNN
 
         /// <summary>k below 1, too few samples and an unfitted model are refused.</summary>
         [TestMethod]
+        [NDScoped]
         public void RefusesBadInput()
         {
-            using var scope = NDScope.Open();
             Assert.ThrowsException<ArgumentOutOfRangeException>(() => new KnnModel(k: 0));
             using var model = new KnnModel(k: 3);
             Assert.ThrowsException<InvalidOperationException>(() => model.Predict(np.zeros(new Shape(1, 1))));

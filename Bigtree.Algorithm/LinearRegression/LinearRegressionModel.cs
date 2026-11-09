@@ -69,9 +69,27 @@ namespace Bigtree.Algorithm.LinearRegression
         /// </exception>
         public LinearRegressionModel Fit(NDArray X, NDArray y)
         {
-            // Every temporary of the fit returns to the pool when this scope closes; the fitted arrays are detached
-            // from it below, because the model keeps them past this call.
-            using var scope = NDScope.Open();
+            FitCore(X, y);
+            return this;
+        }
+
+        /// <summary>
+        ///     The body of <see cref="Fit"/>: centers, sums the normal equations block by block, solves them and stores
+        ///     the fitted arrays. Every temporary returns to the pool when the woven scope closes; the fitted arrays are
+        ///     detached from it, because the model keeps them past this call.
+        /// </summary>
+        /// <param name="X">The samples (see <see cref="Fit"/>).</param>
+        /// <param name="y">The target.</param>
+        /// <remarks>
+        ///     <c>[NDScoped]</c> cannot sit on <see cref="Fit"/> itself: the weaver refuses a method returning a reference
+        ///     type that is not an NDArray carrier (NDW003), and <see cref="Fit"/> returns the model.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="X"/> or <paramref name="y"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">See <see cref="Fit"/>.</exception>
+        /// <exception cref="InvalidOperationException">The features are linearly dependent (see <see cref="Fit"/>).</exception>
+        [NDScoped]
+        private void FitCore(NDArray X, NDArray y)
+        {
             NDArray samples = NDHelpers.Float64Matrix(X, nameof(X));
             NDArray target = Target(y, samples.shape[0]);
 
@@ -89,13 +107,7 @@ namespace Bigtree.Algorithm.LinearRegression
             NDArray moment = np.zeros(yc.ndim == 1 ? new Shape(features) : new Shape(features, yc.shape[1]));
             long blockRows = Math.Max(1, BlockElements / features);
             for (long start = 0; start < rows; start += blockRows)
-            {
-                using var block = NDScope.Open();
-                var range = new Slice(start, Math.Min(start + blockRows, rows));
-                NDArray xc = samples[range] - xOffset;
-                np.add(gram, np.dot(xc.T, xc), @out: gram);
-                np.add(moment, np.dot(xc.T, yc[range]), @out: moment);
-            }
+                AccumulateBlock(samples, yc, xOffset, new Slice(start, Math.Min(start + blockRows, rows)), gram, moment);
 
             NDArray coef;
             try
@@ -121,7 +133,28 @@ namespace Bigtree.Algorithm.LinearRegression
             ReleaseFitted();
             Coef = coef;
             Intercept = intercept;
-            return this;
+        }
+
+        /// <summary>
+        ///     Adds one block's share of the normal equations: <c>gram += Xc.T @ Xc</c> and <c>moment += Xc.T @ yc</c>
+        ///     for the block's centered rows <c>Xc</c>.
+        /// </summary>
+        /// <param name="samples">All samples, float64.</param>
+        /// <param name="yc">The centered target, all rows.</param>
+        /// <param name="xOffset">The column means subtracted from every row (zeros without an intercept).</param>
+        /// <param name="range">The block's rows.</param>
+        /// <param name="gram">The (features, features) running sum, updated in place.</param>
+        /// <param name="moment">The (features,) or (features, targets) running sum, updated in place.</param>
+        /// <remarks>
+        ///     Its own woven scope: the block's centered copy returns to the pool before the next block is centered, so
+        ///     a fit holds its input plus one block, never a whole centered copy of X.
+        /// </remarks>
+        [NDScoped]
+        private static void AccumulateBlock(NDArray samples, NDArray yc, NDArray xOffset, Slice range, NDArray gram, NDArray moment)
+        {
+            NDArray xc = samples[range] - xOffset;
+            np.add(gram, np.dot(xc.T, xc), @out: gram);
+            np.add(moment, np.dot(xc.T, yc[range]), @out: moment);
         }
 
         /// <summary>The fitted model's prediction for every sample: <c>X @ Coef.T + Intercept</c>.</summary>
@@ -182,7 +215,6 @@ namespace Bigtree.Algorithm.LinearRegression
         /// <returns><paramref name="y"/> as float64 (no copy when it already is).</returns>
         /// <exception cref="ArgumentNullException"><paramref name="y"/> is <c>null</c>.</exception>
         /// <exception cref="ArgumentException"><paramref name="y"/> has the wrong shape or holds NaN or infinity.</exception>
-        [NDScopedCovered]
         private static NDArray Target(NDArray y, long rows)
         {
             if (y is null)

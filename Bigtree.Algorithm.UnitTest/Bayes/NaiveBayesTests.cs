@@ -138,9 +138,9 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
         ///     the prediction of [-0.8, -1].
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void Gaussian_ScikitLearnDocstringExample()
         {
-            using var scope = NDScope.Open();
             var X = np.array(new double[,] { { -1, -1 }, { -2, -1 }, { -3, -2 }, { 1, 1 }, { 2, 1 }, { 3, 2 } });
             var y = np.array(new[] { 1, 1, 1, 2, 2, 2 });
             using var model = new GaussianNaiveBayes().Fit(X, y);
@@ -159,9 +159,9 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
 
         /// <summary>The probabilities are a softmax of the joint log-likelihood: rows sum to 1 and the logs agree.</summary>
         [TestMethod]
+        [NDScoped]
         public void Gaussian_ProbabilitiesAreNormalized()
         {
-            using var scope = NDScope.Open();
             np.random.seed(3);
             var X = np.random.randn(40, 3);
             var y = (X[":, 0"] > 0).astype(np.int32) + (X[":, 1"] > 0).astype(np.int32);
@@ -178,9 +178,9 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
 
         /// <summary>Text labels stay text, through Fit, Predict and Score.</summary>
         [TestMethod]
+        [NDScoped]
         public void Gaussian_TextLabels()
         {
-            using var scope = NDScope.Open();
             var X = np.array(new double[,] { { 0.0 }, { 0.2 }, { 5.0 }, { 5.3 } });
             var y = np.array(new[] { "small", "small", "large", "large" });
             using var model = new GaussianNaiveBayes().Fit(X, y);
@@ -194,9 +194,9 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
 
         /// <summary>Fixed priors are used as given and validated like scikit-learn's.</summary>
         [TestMethod]
+        [NDScoped]
         public void Gaussian_FixedPriors()
         {
-            using var scope = NDScope.Open();
             var X = np.array(new double[,] { { 0.0 }, { 1.0 }, { 10.0 }, { 11.0 } });
             var y = np.array(new[] { 0, 0, 1, 1 });
             using var model = new GaussianNaiveBayes(priors: np.array(new[] { 0.9, 0.1 })).Fit(X, y);
@@ -208,9 +208,9 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
 
         /// <summary>Unfitted use, a wrong feature count, NaN input and mismatched labels are refused.</summary>
         [TestMethod]
+        [NDScoped]
         public void Gaussian_RefusesBadInput()
         {
-            using var scope = NDScope.Open();
             var X = np.array(new double[,] { { 0.0, 1.0 }, { 1.0, 0.0 } });
             using var model = new GaussianNaiveBayes();
             Assert.ThrowsException<InvalidOperationException>(() => model.Predict(X));
@@ -226,9 +226,9 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
         ///     <c>RandomState(1).randint</c>): the third sample is predicted as class 3.
         /// </summary>
         [TestMethod]
+        [NDScoped]
         public void Bernoulli_ScikitLearnDocstringExample()
         {
-            using var scope = NDScope.Open();
             np.random.seed(1);
             var X = np.random.randint(5, size: new Shape(6, 100));
             var Y = np.array(new[] { 1, 2, 3, 4, 4, 5 });
@@ -240,9 +240,9 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
 
         /// <summary>The fitted counts and log-probabilities of a tiny table, by hand.</summary>
         [TestMethod]
+        [NDScoped]
         public void Bernoulli_HandComputedProbabilities()
         {
-            using var scope = NDScope.Open();
             // Class 0: feature 0 present twice of 2, feature 1 never; class 1: feature 0 once of 1, feature 1 once.
             var X = np.array(new double[,] { { 1, 0 }, { 3, 0 }, { 0.5, 7 } });
             var y = np.array(new[] { 0, 0, 1 });
@@ -263,9 +263,9 @@ namespace Bigtree.Algorithm.UnitTest.Bayes
 
         /// <summary>A uniform prior when fitPrior is false, and fixed priors when given.</summary>
         [TestMethod]
+        [NDScoped]
         public void Bernoulli_PriorOptions()
         {
-            using var scope = NDScope.Open();
             var X = np.array(new double[,] { { 1, 0 }, { 1, 1 }, { 0, 1 } });
             var y = np.array(new[] { 0, 0, 1 });
             using var uniform = new BernoulliNaiveBayes(fitPrior: false).Fit(X, y);

@@ -53,20 +53,21 @@ namespace Bigtree.Algorithm
         ///     (as in NN-scratch), so every fold has the same size.
         /// </returns>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="n_folds"/> is not in [1, <paramref name="N"/>].</exception>
+        [NDScoped]
         public static NDArray[] CrossValFolds(int N, int n_folds, int? seed = null)
         {
             if (n_folds < 1 || n_folds > N)
                 throw new ArgumentOutOfRangeException(nameof(n_folds), n_folds, $"The fold count must be between 1 and N ({N}).");
 
-            using var scope = NDScope.Open();
             var generator = seed is int value ? np.random.default_rng(value) : np.random.default_rng();
             NDArray permutation = generator.permutation(N);
             int size = N / n_folds;
             var folds = new NDArray[n_folds];
             for (int i = 0; i < n_folds; i++)
                 folds[i] = permutation[$"{i * size}:{(i + 1) * size}"].copy();
-            // The folds outlive this scope: hand them to the caller's scope (if any), which owns them now.
-            return scope.Returns(folds);
+            // The woven scope hands the returned folds to the caller's scope (if any), which owns them; the
+            // permutation they were copied from is reclaimed.
+            return folds;
         }
 
         /// <summary>

@@ -100,11 +100,15 @@ weights with 11 NumSharp calls per step instead of about 24 (1.7 times faster at
 
 NumSharp arrays live in unmanaged memory. The estimators implement `IDisposable` and own their fitted arrays: dispose
 a model (or let the finalizer do it) to return the buffers to NumSharp's pool, and never dispose an array a model
-exposes. Every array a method returns belongs to the caller. Inside the library, `[NDScoped]` methods (woven at build
-time by `NumSharp.Build`) return their temporaries to the pool on exit.
+exposes. Every array a method returns belongs to the caller. Inside the library (and its tests), every scope is an
+`[NDScoped]` attribute, woven at build time by `NumSharp.Build`: the method's temporaries return to the pool on exit,
+and helpers called from it need no attribute of their own, because an NDArray belongs to the innermost scope open on
+its thread. Where the weaver refuses the attribute (a method returning the model or another non-NDArray reference type,
+build error NDW003), the method delegates to an `[NDScoped]` one: `Fit` returns `this` after an `[NDScoped]` `FitCore`.
+The analyzer's NDW0xx warnings are off in `.editorconfig`; its errors stay.
 
-A scope holds every temporary until its method returns, so a method that loops over classes or would build a
-(queries × training samples) matrix opens one scope per class or per block instead: KNN and SVM batch prediction run
+A scope holds every temporary until its method returns, so a loop over classes, or over blocks of a (queries × training
+samples) matrix, runs each class or block in an `[NDScoped]` method of its own: KNN and SVM batch prediction run
 in blocks of 2^22 distances or kernel entries (32 MB) and write each block into the result, linear regression sums its
 normal equations over 32 MB blocks of centered rows instead of centering a whole copy of `X`, and Gaussian Naive Bayes
 frees each class's temporaries before the next. KNN on 8,000 queries × 8,000 training samples peaks at 170 MB instead
